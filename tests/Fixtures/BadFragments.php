@@ -1,0 +1,34 @@
+<?php
+
+namespace Native\Asgard\Tests\Fixtures;
+
+use Native\Asgard\Attributes\Region;
+use Native\Asgard\Node;
+use Native\Asgard\ServerComponent;
+
+class BadFragments extends ServerComponent
+{
+    public string $type = 'top_bar';
+
+    #[Region('denied')]
+    public function denied(): Node
+    {
+        return Node::column(Node::make($this->type));
+    }
+
+    #[Region('props')]
+    public function props(): array
+    {
+        return [
+            'type' => 'button',
+            'props' => ['label' => 'Go', '_press' => 'nuke', 'native-key' => 'x', 'native:id' => 'y', '_navigate' => '/admin'],
+            'on_press' => 'go()',
+        ];
+    }
+
+    #[Region('garbage')]
+    public function garbage(): string
+    {
+        return 'not a node';
+    }
+}
