@@ -5,6 +5,7 @@ namespace Native\Asgard\Http;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
@@ -137,7 +138,9 @@ class StreamController
 
         Hydrator::hydrate($component, $state);
 
-        return FragmentValidator::validate($this->container->call([$component, $method]));
+        return FragmentValidator::validate(
+            $this->container->make(RegionViews::class)->resolve($this->container->call([$component, $method]), $component),
+        );
     }
 
     /**

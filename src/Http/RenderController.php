@@ -5,6 +5,7 @@ namespace Native\Asgard\Http;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
@@ -22,6 +23,7 @@ class RenderController
     public function __construct(
         protected ComponentRegistry $registry,
         protected Container $container,
+        protected RegionViews $views,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -72,7 +74,7 @@ class RenderController
         $result = $this->container->call([$component, $method]);
 
         try {
-            $fragment = FragmentValidator::validate($result);
+            $fragment = FragmentValidator::validate($this->views->resolve($result, $component));
         } catch (InvalidFragment $e) {
             return $this->invalidFragment($e, $class, $method);
         }

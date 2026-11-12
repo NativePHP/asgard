@@ -70,4 +70,20 @@ return [
         'poll_ms' => (int) env('ASGARD_STREAM_POLL_MS', 500),
     ],
 
+    /*
+    | Region views: a #[Region] method may return view('...') written in the
+    | app's native Blade dialect.
+    |
+    | compiled: where compiled region views go. null means an `asgard`
+    |           folder inside view.compiled. Kept apart from web views so
+    |           the two never share a compiled file.
+    | elements: extra element types (snake_case) to accept as bare tags,
+    |           e.g. a plugin's 'map_view' for <map-view>. The core and
+    |           mobile-ui types are built in. <native:x> always works.
+    */
+    'blade' => [
+        'compiled' => env('ASGARD_BLADE_COMPILED'),
+        'elements' => [],
+    ],
+
 ];

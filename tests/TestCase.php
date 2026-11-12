@@ -10,6 +10,7 @@ use Native\Asgard\Security\SessionKeys;
 use Native\Asgard\Security\Wire;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Tests\Fixtures\BadFragments;
+use Native\Asgard\Tests\Fixtures\BladeScreen;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\CounterScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
@@ -50,7 +51,10 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.child' => ChildScreen::class,
             'app.native.screens.counter' => CounterScreen::class,
             'app.native.screens.rows' => RowsScreen::class,
+            'app.native.screens.blade' => BladeScreen::class,
         ]);
+        $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
+        $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
     }
 
     protected function tearDown(): void

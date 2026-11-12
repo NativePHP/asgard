@@ -76,10 +76,69 @@ or at boot:
 Asgard::component('app.native.screens.home', HomeScreen::class);
 ```
 
-A region method may return a `Node`, a list of `Node`s, or plain arrays in the
-node shape. Region methods are resolved through the container, so they can
+A region method may return a `Node`, a list of `Node`s, plain arrays in the
+node shape, or a Blade view (see below). Region methods are resolved through the container, so they can
 type-hint dependencies. `$this->platform()` and `$this->region()` are
 available inside them.
+
+### Blade region views
+
+A region method can return a view written in the same Blade dialect as the
+app's native screens:
+
+```php
+#[Region('stats')]
+public function stats(): View
+{
+    return view('regions.stats', ['items' => $this->items()]);
+}
+```
+
+```blade
+{{-- resources/views/regions/stats.blade.php --}}
+<column class="p-4 gap-2" key="stats">
+    <text class="font-bold">Hello, {{ $this->name }}</text>
+    @foreach ($items as $item)
+        <row :key="$item->id">
+            <text>{{ $item->title }}</text>
+            <button @press="remove({{ $item->id }})">Remove</button>
+        </row>
+    @endforeach
+    <button @press.client="celebrate">Party</button>
+</column>
+```
+
+It becomes the same fragment as the equivalent `Node` tree, and goes through
+the same checks, so chrome like `<top-bar>` is still refused.
+
+- `<native:column>` and the bare `<column>` both work. Bare tags are accepted
+  for nativephp/mobile's core elements and nativephp/mobile-ui's elements.
+  Add a plugin's types (snake_case) to `asgard.blade.elements`.
+  `<native:anything>` always compiles.
+- `$this` is the component, and its public properties are view variables
+  too. Data passed to `view()` wins over a property of the same name.
+- `class` is passed through for the device to parse. `key` (or
+  `native:key`) is the node key. Every other attribute is a prop, under the
+  name it was written with.
+- `<text>` and `<button>` take their slot as `text` and `label`, with
+  whitespace collapsed as on the device. Nested `<text>` runs work.
+- `@press="bump"` is a server `#[Action]`. `@press.client="celebrate"` runs a
+  client action. The same goes for `@longPress`, `@doubleTap`, `@change` and
+  `@submit`, and the `@tap`/`@longTap` spellings. Other events throw.
+- Call args are literals (`'a'`, `2`, `-1.5`, `true`, `null`, `[...]`) or a
+  whole `{{ $value }}`, which is passed as a value: `select({{ $id }}, 'x')`
+  sends `$id` as an int if it is one. Nothing else is allowed, and nothing
+  is evaluated from a string. `{{ }}` inside a quoted string is refused.
+- `native:model`, `@model`, `native:poll` and `@navigate` are refused. A
+  region has no client props to sync and re-renders by push.
+- Several root tags make a list fragment. `@include`, `@if`, `@foreach` and
+  the app's custom directives work.
+
+Region views compile with their own Blade compiler into
+`storage/framework/views/asgard` (`asgard.blade.compiled`), so they never
+share a compiled file with web views, and the app's web views never see the
+native tag rewriting. `php artisan view:clear` empties it along with the
+rest. `view:cache` does not precompile region views.
 
 ### Node builder
 

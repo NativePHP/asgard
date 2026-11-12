@@ -3,6 +3,11 @@
 namespace Native\Asgard;
 
 use Illuminate\Support\ServiceProvider;
+use Native\Asgard\Blade\Elements;
+use Native\Asgard\Blade\NativeTagPrecompiler;
+use Native\Asgard\Blade\RegionCompiler;
+use Native\Asgard\Blade\RegionEngine;
+use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\Console\KeyCommand;
 use Native\Asgard\Console\PushCommand;
 use Native\Asgard\Support\PushVersions;
@@ -31,6 +36,30 @@ class AsgardServiceProvider extends ServiceProvider
         ));
 
         $this->app->singleton(StreamClock::class);
+
+        // Region views get their own compiler, so the app's web views never
+        // meet NativeTagPrecompiler. Built on first use, after the app has
+        // registered its own directives.
+        $this->app->singleton('asgard.blade.compiler', function ($app) {
+            $config = $app['config'];
+
+            $compiler = new RegionCompiler(
+                $app['files'],
+                $config->get('asgard.blade.compiled') ?: rtrim($config->get('view.compiled') ?: storage_path('framework/views'), '/').'/asgard',
+                $config->get('view.relative_hash', false) ? $app->basePath() : '',
+                $config->get('view.cache', true),
+                $config->get('view.compiled_extension', 'php'),
+                $config->get('view.check_cache_timestamps', true),
+            );
+
+            $compiler->inherit($app['blade.compiler']);
+            $compiler->precompiler(new NativeTagPrecompiler(Elements::tags($config->get('asgard.blade.elements', []))));
+
+            return $compiler;
+        });
+
+        $this->app->singleton(RegionEngine::class, fn ($app) => new RegionEngine($app['asgard.blade.compiler'], $app['files']));
+        $this->app->singleton(RegionViews::class);
         $this->app->singleton(Asgard::class);
     }
 
