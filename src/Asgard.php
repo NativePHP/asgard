@@ -7,14 +7,32 @@ use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\PushVersions;
 
 /**
- * What the Asgard facade points at: the component registry plus push.
+ * What the Asgard facade points at: the component and screen registries, plus push.
  */
 class Asgard
 {
     public function __construct(
         protected ComponentRegistry $registry,
         protected PushVersions $versions,
+        protected ScreenRegistry $screens,
     ) {}
+
+    /**
+     * Register a server screen. Its route comes from its #[Screen]
+     * attribute, and it is also registered as a component at its address.
+     *
+     * @param  class-string<ServerScreen>  $class
+     */
+    public function screen(string $class): ScreenRegistry
+    {
+        return $this->screens->screen($class);
+    }
+
+    /** @return list<array{uri: string, screen: string}> */
+    public function routes(): array
+    {
+        return $this->screens->routes();
+    }
 
     /** @param class-string<ServerComponent> $class */
     public function component(string $address, string $class): ComponentRegistry

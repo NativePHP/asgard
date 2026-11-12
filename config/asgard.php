@@ -3,8 +3,8 @@
 return [
 
     /*
-    | Path prefix for the endpoints: {path}/session, {path}/render and
-    | {path}/stream.
+    | Path prefix for the endpoints: {path}/session, {path}/render,
+    | {path}/stream and {path}/routes.
     */
     'path' => env('ASGARD_PATH', '_asgard'),
 
@@ -47,6 +47,18 @@ return [
     */
     'components' => [
         // 'app.native.screens.home' => App\Asgard\HomeScreen::class,
+    ],
+
+    /*
+    | Server screens: whole screens the server owns, each a ServerScreen
+    | class with a #[Screen('/uri')] attribute. The device fetches their
+    | routes from {path}/routes and opens them like its own screens. An app
+    | route always wins over a server route with the same shape.
+    |
+    | Asgard::screen() at boot registers more.
+    */
+    'screens' => [
+        // App\Asgard\PromoScreen::class,
     ],
 
     /*

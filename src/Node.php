@@ -23,7 +23,7 @@ class Node implements JsonSerializable
 
     protected ?string $class = null;
 
-    /** @var array<string, array{call: string, args: list<mixed>, target?: 'client'}> */
+    /** @var array<string, array<string, mixed>> slot name => call or navigation */
     protected array $callbacks = [];
 
     /** @var list<Node|array<string, mixed>> */
@@ -161,19 +161,46 @@ class Node implements JsonSerializable
         return $this->on('on_submit', $method, $args, 'client');
     }
 
+    /**
+     * Moves the app to a route the device knows: an app route or a server
+     * screen. The device checks the route exists before it goes; web URLs
+     * are refused here and there.
+     */
+    public function onPressNavigate(string $uri, bool $replace = false, ?string $transition = null): static
+    {
+        return $this->slot('on_press', fn () => Callback::navigate($uri, $replace, $transition));
+    }
+
+    public function onLongPressNavigate(string $uri, bool $replace = false, ?string $transition = null): static
+    {
+        return $this->slot('on_long_press', fn () => Callback::navigate($uri, $replace, $transition));
+    }
+
+    public function onDoubleTapNavigate(string $uri, bool $replace = false, ?string $transition = null): static
+    {
+        return $this->slot('on_double_tap', fn () => Callback::navigate($uri, $replace, $transition));
+    }
+
+    /** Goes back one screen. */
+    public function onPressBack(?string $transition = null): static
+    {
+        return $this->slot('on_press', fn () => Callback::back($transition));
+    }
+
     /** @param array<int|string, mixed> $args */
     protected function on(string $event, string $method, array $args, string $target): static
     {
-        if ($problem = Callback::nameProblem($method) ?? Callback::argsProblem($args)) {
-            throw new InvalidFragment("{$event}: {$problem}");
-        }
+        return $this->slot($event, fn () => Callback::call($method, $args, $target));
+    }
 
-        $callback = ['call' => $method, 'args' => $args];
-        if ($target === 'client') {
-            $callback['target'] = 'client';
+    /** @param \Closure(): array<string, mixed> $build */
+    protected function slot(string $event, \Closure $build): static
+    {
+        try {
+            $this->callbacks[$event] = $build();
+        } catch (InvalidFragment $e) {
+            throw new InvalidFragment("{$event}: {$e->getMessage()}");
         }
-
-        $this->callbacks[$event] = $callback;
 
         return $this;
     }

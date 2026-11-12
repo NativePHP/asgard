@@ -97,7 +97,7 @@ final class FragmentValidator
                     break;
 
                 case in_array($field, self::CALLBACKS, true):
-                    $clean[$field] = self::callback($value, "{$path}.{$field}");
+                    $clean[$field] = Callback::validateSlot($value, "{$path}.{$field}", $field);
                     break;
 
                 case $field === 'children':
@@ -115,45 +115,6 @@ final class FragmentValidator
 
                 default:
                     throw new InvalidFragment("{$path}: unknown node field [{$field}].");
-            }
-        }
-
-        return $clean;
-    }
-
-    /**
-     * A callback slot must be exactly {call, args, target?}. Strings and
-     * anything else are rejected.
-     *
-     * @return array{call: string, args: list<mixed>, target?: 'client'}
-     */
-    private static function callback(mixed $value, string $path): array
-    {
-        if (! is_array($value) || array_is_list($value)) {
-            throw new InvalidFragment("{$path}: callback must be an object like {\"call\": \"method\", \"args\": []}.");
-        }
-
-        $extra = array_diff(array_map('strval', array_keys($value)), ['call', 'args', 'target']);
-        if ($extra !== []) {
-            throw new InvalidFragment("{$path}: unknown callback field [".implode(', ', $extra).'].');
-        }
-
-        if (! array_key_exists('call', $value) || ! array_key_exists('args', $value)) {
-            throw new InvalidFragment("{$path}: callback needs both 'call' and 'args'.");
-        }
-
-        if ($problem = Callback::nameProblem($value['call']) ?? Callback::argsProblem($value['args'])) {
-            throw new InvalidFragment("{$path}: {$problem}");
-        }
-
-        $clean = ['call' => $value['call'], 'args' => $value['args']];
-
-        if (array_key_exists('target', $value)) {
-            if (! in_array($value['target'], Callback::TARGETS, true)) {
-                throw new InvalidFragment("{$path}: 'target' must be \"server\" or \"client\".");
-            }
-            if ($value['target'] === 'client') {
-                $clean['target'] = 'client';
             }
         }
 
