@@ -7,17 +7,22 @@ state here, and paints the native elements this package returns.
 The protocol itself is described in `docs/ASGARD-PROTOCOL.md` in mobile-air.
 This package implements a v0 walking skeleton of it.
 
-> **TODO: no handshake, sessions, signing or encryption yet.** Protocol §6 and
-> §7 are skipped in this slice. Requests are unauthenticated and state is
-> unsigned. Treat every region as public, and do not return anything from one
-> that you would not put on a public web page.
+Every request and response is signed and encrypted (protocol §6 and §7), and
+so is every pushed stream event. That is integrity and privacy from logging
+proxies, not authentication: `ASGARD_KEY` is public, so anyone with the app can
+open a session. Identify users with your own bearer auth in
+`asgard.middleware`.
 
 ## Install
 
 ```sh
 composer require nativephp/asgard
 php artisan vendor:publish --tag=asgard-config
+php artisan asgard:key
 ```
+
+Put the printed `ASGARD_KEY=…` in the server's `.env` and the app's `.env`.
+One key per app per environment.
 
 ## Writing a server component
 
@@ -152,7 +157,42 @@ Config, under `asgard.stream`:
 | `lifetime` | `300` | Seconds before the server closes a stream. The client reconnects. `ASGARD_STREAM_LIFETIME`. |
 | `poll_ms` | `500` | How often each stream reads the push store. `ASGARD_STREAM_POLL_MS`. |
 
+## Sessions and security
+
+The app opens a session at `POST {base}/_asgard/session` with its key and an
+ephemeral P-256 public key. The server answers with its own public key and a
+session id, and both sides derive the session secret with ECDH and HKDF. The
+secret is never sent. Sessions live in a cache store and expire after
+`lifetime` seconds without a request.
+
+```json
+→ {"key":"<ASGARD_KEY>","protocol":1,"accepts":["tree/json"],"client_public":"<base64url point>"}
+← {"session":"<id>","server_public":"<base64url point>","expires_in":1800,"encoding":"tree/json"}
+```
+
+Render and stream requests then carry `Asgard-Session-Id`, an `aes128gcm` body
+(RFC 8188), `Content-Digest` (RFC 9530) and an `hmac-sha256` signature under
+the label `asgard` (RFC 9421). Server actions also sign a nonce, and a nonce
+is refused the second time. The `SealAsgardMessages` middleware checks all of
+it before your middleware or any controller sees the request, and seals
+whatever comes back. Stream events are sealed one by one and bound to the
+request that opened the stream.
+
+Config, under `asgard.sessions`:
+
+| Key | Default | |
+| --- | --- | --- |
+| `store` | `null` (default cache store) | Cache store for sessions and nonces. Shared by every worker, so never `array`. `ASGARD_SESSION_STORE`. |
+| `lifetime` | `1800` | Seconds a session lives without a request. `ASGARD_SESSION_LIFETIME`. |
+
+The crypto lives in `src/Security`, in small classes with no Laravel in them.
+`nativephp/midgard` carries an identical copy, and both test suites check
+`tests/Fixtures/asgard-interop.json` so the two cannot drift apart.
+
 ## Wire contract (v0)
+
+The bodies below are the plaintext. On the wire each one is inside
+`aes128gcm`, as described above.
 
 **Endpoint:** `{base}/_asgard/render`. The prefix is `asgard.path`. Two forms:
 
@@ -207,9 +247,12 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 
 | Status | Body | When |
 | --- | --- | --- |
+| 403 | `{"error":"forbidden",…}` | Digest, signature or decryption failed, the signature expired, or a nonce was replayed. Plain, unsigned. Do not retry. |
+| 403 | `{"error":"nonce_required"}` | An action whose signature has no nonce. |
 | 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare. Same body for both. |
 | 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[Action]` on the component, or the arg count doesn't fit it. |
 | 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`. |
+| 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment. The message is included in debug. |
 
@@ -238,19 +281,25 @@ retry: 3000
 
 id: 0
 event: fragment
-data: {"protocol":1,"region":"greeting","fragment":{...}}
+data: {"body":"<base64url aes128gcm>","sig":"<base64url hmac>"}
 
 id: 0
 event: fragment
-data: {"protocol":1,"region":"stats","fragment":{...}}
+data: {"body":"…","sig":"…"}
 
 : ping
 
 id: 1
 event: fragment
-data: {"protocol":1,"region":"stats","fragment":{...}}
+data: {"body":"…","sig":"…"}
 
 ```
+
+Each `body` decrypts with `enc_s` to
+`{"protocol":1,"region":"stats","fragment":{...}}`. `sig` is HMAC-SHA256 with
+`sig_s` over `asgard/1 event`, the stream request's signature in base64, the
+event id, the event name and `body`, one per line. An event only verifies on
+the stream it was sent on.
 
 - One `fragment` event per region on connect, in the order asked for.
 - After that, a `fragment` event for each region a push touched.

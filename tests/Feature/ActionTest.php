@@ -255,9 +255,9 @@ it('passes valid callback objects through a fragment', function (array $callback
 ]);
 
 it('refuses a component address or region with a trailing newline', function () {
-    $send = fn (array $body) => $this->call('POST', '/_asgard/render', [], [], [], [
-        'HTTP_X_ASGARD_METHOD' => 'QUERY', 'CONTENT_TYPE' => 'application/json',
-    ], json_encode(['protocol' => 1, 'state' => [], 'platform' => 'ios', ...$body]));
+    $send = fn (array $body) => $this->asgard(
+        json_encode(['protocol' => 1, 'state' => [], 'platform' => 'ios', ...$body]), 'POST', ['X-Asgard-Method' => 'QUERY'],
+    );
 
     $send(['component' => "app.native.screens.home\n", 'region' => 'greeting'])->assertStatus(422);
     $send(['component' => 'app.native.screens.home', 'region' => "greeting\n"])->assertStatus(422);

@@ -3,8 +3,10 @@
 namespace Native\Asgard;
 
 use Illuminate\Support\ServiceProvider;
+use Native\Asgard\Console\KeyCommand;
 use Native\Asgard\Console\PushCommand;
 use Native\Asgard\Support\PushVersions;
+use Native\Asgard\Support\SessionStore;
 use Native\Asgard\Support\StreamClock;
 
 class AsgardServiceProvider extends ServiceProvider
@@ -22,6 +24,12 @@ class AsgardServiceProvider extends ServiceProvider
             $app['config']->get('asgard.stream.store'),
         ));
 
+        $this->app->singleton(SessionStore::class, fn ($app) => new SessionStore(
+            $app['cache'],
+            $app['config']->get('asgard.sessions.store'),
+            (int) $app['config']->get('asgard.sessions.lifetime', 1800),
+        ));
+
         $this->app->singleton(StreamClock::class);
         $this->app->singleton(Asgard::class);
     }
@@ -33,7 +41,7 @@ class AsgardServiceProvider extends ServiceProvider
         ], 'asgard-config');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([PushCommand::class]);
+            $this->commands([KeyCommand::class, PushCommand::class]);
         }
 
         if (! $this->app->routesAreCached()) {

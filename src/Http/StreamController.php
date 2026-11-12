@@ -9,6 +9,7 @@ use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
+use Native\Asgard\Security\Wire;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\FragmentValidator;
@@ -45,10 +46,6 @@ class StreamController
 
     public function __invoke(Request $request): JsonResponse|StreamedResponse
     {
-        if ($refused = $this->methodNotAllowed($request)) {
-            return $refused;
-        }
-
         try {
             $body = $this->body($request);
             $regions = $this->regions($body['regions'] ?? null);
@@ -90,8 +87,10 @@ class StreamController
             }
         }
 
+        $secure = $this->secure($request);
+
         return new StreamedResponse(
-            fn () => $this->stream($class, $methods, $address, $regions, $platform, $state, $seen, $initial),
+            fn () => $this->stream($secure, $class, $methods, $address, $regions, $platform, $state, $seen, $initial),
             200,
             [
                 'Content-Type' => 'text/event-stream',
@@ -149,7 +148,7 @@ class StreamController
      * @param  array{component: int, regions: array<string, int>}  $seen
      * @param  array<string, array<string, mixed>|list<array<string, mixed>>>  $initial
      */
-    protected function stream(string $class, array $methods, string $address, array $regions, string $platform, array $state, array $seen, array $initial): void
+    protected function stream(SecureRequest $secure, string $class, array $methods, string $address, array $regions, string $platform, array $state, array $seen, array $initial): void
     {
         $lifetime = max(1, (int) config('asgard.stream.lifetime', 300));
         $poll = max(10, (int) config('asgard.stream.poll_ms', 500));
@@ -164,7 +163,7 @@ class StreamController
 
         $id = self::eventId($seen);
         foreach ($initial as $region => $fragment) {
-            $this->send($id, $region, $fragment);
+            $this->send($secure, $id, $region, $fragment);
         }
 
         while (! $this->clock->aborted()) {
@@ -207,7 +206,7 @@ class StreamController
                     continue;
                 }
 
-                $this->send($id, $region, $fragment);
+                $this->send($secure, $id, $region, $fragment);
             }
 
             $seen = $current;
@@ -229,14 +228,21 @@ class StreamController
         return (string) ($versions['component'] + array_sum($versions['regions']));
     }
 
-    /** @param array<string, mixed>|list<array<string, mixed>> $fragment */
-    protected function send(string $id, string $region, array $fragment): void
+    /**
+     * One `fragment` event, encrypted with enc_s and signed with sig_s, bound
+     * to the request that opened this stream (§8.1).
+     *
+     * @param  array<string, mixed>|list<array<string, mixed>>  $fragment
+     */
+    protected function send(SecureRequest $secure, string $id, string $region, array $fragment): void
     {
-        // json_encode escapes newlines, so the data is always a single line.
-        $data = json_encode(
+        $plaintext = json_encode(
             ['protocol' => self::PROTOCOL, 'region' => $region, 'fragment' => $fragment],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
         );
+
+        // The sealed data is JSON of base64url strings, so always a single line.
+        $data = Wire::sealEvent($secure->keys, $secure->session, $secure->signature, $id, 'fragment', $plaintext);
 
         $this->write("id: {$id}\nevent: fragment\ndata: {$data}\n\n");
     }

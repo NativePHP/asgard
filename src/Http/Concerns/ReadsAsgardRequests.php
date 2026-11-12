@@ -7,28 +7,18 @@ use Illuminate\Http\Request;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Http\SecureRequest;
 
 /**
  * Request checks shared by the render and stream endpoints, so both apply
- * exactly the same rules to the untrusted body.
+ * exactly the same rules to the untrusted body. The body they read is the
+ * one SealAsgardMessages verified and decrypted.
  */
 trait ReadsAsgardRequests
 {
     public const PROTOCOL = 1;
 
     public const REGION_PATTERN = '/^[A-Za-z0-9_.:-]{1,100}$/D';
-
-    /** A POST must carry X-Asgard-Method: QUERY. Returns the 405, or null when fine. */
-    protected function methodNotAllowed(Request $request): ?JsonResponse
-    {
-        if ($request->getMethod() === 'POST'
-            && strtoupper((string) $request->headers->get('X-Asgard-Method')) !== 'QUERY') {
-            return $this->error(405, 'method_not_allowed', 'POST requires the X-Asgard-Method: QUERY header.')
-                ->header('Allow', 'QUERY, POST');
-        }
-
-        return null;
-    }
 
     /**
      * Protocol header, JSON object body, protocol 1 and a component address.
@@ -43,7 +33,7 @@ trait ReadsAsgardRequests
         }
 
         try {
-            $body = json_decode($request->getContent(), true, 64, JSON_THROW_ON_ERROR);
+            $body = json_decode($this->secure($request)->body, true, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             throw new InvalidRequest('Body must be valid JSON.');
         }
@@ -62,6 +52,18 @@ trait ReadsAsgardRequests
         }
 
         return $body;
+    }
+
+    /** The request as the middleware verified and decrypted it. */
+    protected function secure(Request $request): SecureRequest
+    {
+        $secure = $request->attributes->get(SecureRequest::ATTRIBUTE);
+
+        if (! $secure instanceof SecureRequest) {
+            throw new \LogicException('Asgard endpoints must run behind SealAsgardMessages.');
+        }
+
+        return $secure;
     }
 
     protected function regionName(mixed $region, string $field = 'region'): string

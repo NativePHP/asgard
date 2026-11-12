@@ -3,9 +3,31 @@
 return [
 
     /*
-    | Path prefix for the endpoints: {path}/render and {path}/stream.
+    | Path prefix for the endpoints: {path}/session, {path}/render and
+    | {path}/stream.
     */
     'path' => env('ASGARD_PATH', '_asgard'),
+
+    /*
+    | The app's Asgard key. A public identifier for one app in one
+    | environment, compiled into the app. The handshake refuses any other
+    | key, and every key while this is empty. `php artisan asgard:key`
+    | makes one.
+    */
+    'key' => env('ASGARD_KEY'),
+
+    /*
+    | Sessions from the handshake (protocol §6). A session expires after
+    | `lifetime` seconds without a request.
+    |
+    | store: cache store for sessions and action nonces. Must be shared by
+    |        every worker that serves the endpoints, so not `array`. null
+    |        means the default cache store.
+    */
+    'sessions' => [
+        'store' => env('ASGARD_SESSION_STORE'),
+        'lifetime' => (int) env('ASGARD_SESSION_LIFETIME', 1800),
+    ],
 
     /*
     | Extra middleware for the endpoint (throttling, auth...). The route is

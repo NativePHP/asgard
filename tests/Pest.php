@@ -1,5 +1,6 @@
 <?php
 
+use Native\Asgard\Security\Wire;
 use Native\Asgard\Tests\TestCase;
 
 uses(TestCase::class)->in(__DIR__);
@@ -28,7 +29,9 @@ function streamBody(array $overrides = []): array
 
 /**
  * Splits an SSE body into its blocks. Fragment events come back as
- * ['id' => ..., 'event' => ..., 'data' => decoded JSON].
+ * ['id' => ..., 'event' => ..., 'data' => decoded JSON], after their
+ * signature is checked against the request that opened the stream and
+ * their body is decrypted, as a client would.
  *
  * @return list<array<string, mixed>|string>
  */
@@ -45,8 +48,14 @@ function sseBlocks(string $content): array
         $fields = [];
         foreach (explode("\n", $block) as $line) {
             [$name, $value] = explode(': ', $line, 2);
-            $fields[$name] = $name === 'data' ? json_decode($value, true, 512, JSON_THROW_ON_ERROR) : $value;
+            $fields[$name] = $value;
         }
+
+        $stream = TestCase::$stream;
+        $fields['data'] = json_decode(
+            Wire::openEvent($stream['keys'], $stream['id'], $stream['signature'], $fields['id'], $fields['event'], $fields['data']),
+            true, 512, JSON_THROW_ON_ERROR,
+        );
         $blocks[] = $fields;
     }
 

@@ -26,14 +26,16 @@ class RenderController
 
     public function __invoke(Request $request): JsonResponse
     {
-        if ($refused = $this->methodNotAllowed($request)) {
-            return $refused;
-        }
-
         try {
             $payload = $this->payload($request);
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
+        }
+
+        // An action is not a safe request, so its signature must carry a
+        // nonce (§7.3). The middleware has already refused a repeated one.
+        if ($payload['action'] !== null && $this->secure($request)->nonce === null) {
+            return response()->json(['error' => 'nonce_required'], 403);
         }
 
         // Plain array lookups only. The wire strings never name a class or method.
