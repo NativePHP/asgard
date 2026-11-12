@@ -253,3 +253,12 @@ it('passes valid callback objects through a fragment', function (array $callback
     'explicit server is dropped' => [['call' => 'go', 'args' => [], 'target' => 'server'], ['call' => 'go', 'args' => []]],
     'client' => [['call' => 'go', 'args' => [], 'target' => 'client'], ['call' => 'go', 'args' => [], 'target' => 'client']],
 ]);
+
+it('refuses a component address or region with a trailing newline', function () {
+    $send = fn (array $body) => $this->call('POST', '/_asgard/render', [], [], [], [
+        'HTTP_X_ASGARD_METHOD' => 'QUERY', 'CONTENT_TYPE' => 'application/json',
+    ], json_encode(['protocol' => 1, 'state' => [], 'platform' => 'ios', ...$body]));
+
+    $send(['component' => "app.native.screens.home\n", 'region' => 'greeting'])->assertStatus(422);
+    $send(['component' => 'app.native.screens.home', 'region' => "greeting\n"])->assertStatus(422);
+});

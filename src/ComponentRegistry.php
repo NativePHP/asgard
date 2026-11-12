@@ -11,7 +11,7 @@ use InvalidArgumentException;
  */
 class ComponentRegistry
 {
-    public const ADDRESS_PATTERN = '/^[a-z0-9_]+(\.[a-z0-9_]+)*$/';
+    public const ADDRESS_PATTERN = '/^[a-z0-9_]+(\.[a-z0-9_]+)*$/D';
 
     /** @var array<string, class-string<ServerComponent>> */
     protected array $components = [];

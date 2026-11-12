@@ -61,7 +61,7 @@ final class FragmentValidator
         }
 
         $type = $node['type'] ?? null;
-        if (! is_string($type) || ! preg_match('/^[a-z][a-z0-9_]*$/', $type)) {
+        if (! is_string($type) || ! preg_match('/^[a-z][a-z0-9_]*$/D', $type)) {
             throw new InvalidFragment("{$path}: 'type' must be a snake_case element name.");
         }
         if (in_array($type, self::DENIED_TYPES, true)) {

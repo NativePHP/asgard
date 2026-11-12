@@ -117,7 +117,7 @@ class RenderController
         }
 
         $region = $body['region'] ?? null;
-        if (! is_string($region) || ! preg_match('/^[A-Za-z0-9_.:-]{1,100}$/', $region)) {
+        if (! is_string($region) || ! preg_match('/^[A-Za-z0-9_.:-]{1,100}$/D', $region)) {
             throw new InvalidRequest('region must be a region name.');
         }
 
