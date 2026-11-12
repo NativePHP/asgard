@@ -6,9 +6,22 @@ use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\Repository;
 
 /**
- * Push counters kept in a cache store. One counter per component address,
- * and one per address and region. Asgard::push() bumps them, and each open
- * stream polls them and re-renders when one has changed.
+ * Push counters kept in a cache store. Asgard::push() and Asgard::to()
+ * bump them, and each open stream polls them and re-renders when one has
+ * changed.
+ *
+ * The counters and their keys:
+ *
+ *     asgard:push:{address}                      everyone on a component
+ *     asgard:push:{address}#{region}             everyone on one region of it
+ *     asgard:push:@{channel}                     every stream in a channel
+ *     asgard:push:@{channel}|{address}           a component, in a channel
+ *     asgard:push:@{channel}|{address}#{region}  one region of it, in a channel
+ *
+ * {channel} is the sha1 of the channel name, so it is always 40 hex
+ * characters whatever the name holds, and keys stay short enough for any
+ * store. Addresses are [a-z0-9_.] and regions never hold '#' or '|', so no
+ * two counters can share a key.
  *
  * Streams compare with !==, never <, so a counter that is evicted or reset
  * still counts as a change.
@@ -27,25 +40,51 @@ class PushVersions
         $this->increment($region === null ? self::componentKey($address) : self::regionKey($address, $region));
     }
 
-    /**
-     * @param  list<string>  $regions
-     * @return array{component: int, regions: array<string, int>}
-     */
-    public function snapshot(string $address, array $regions): array
+    /** Bump a channel's counter, or one for a component or region in it. */
+    public function bumpChannel(string $channel, ?string $address = null, ?string $region = null): void
     {
-        $keys = [self::componentKey($address)];
+        $this->increment(match (true) {
+            $address === null => self::channelKey($channel),
+            $region === null => self::channelComponentKey($channel, $address),
+            default => self::channelRegionKey($channel, $address, $region),
+        });
+    }
+
+    /**
+     * Every counter one stream watches, read in a single many() call.
+     *
+     * `component` holds the counters that re-render every region: the
+     * address's own, then each channel's and each channel's for this
+     * address. `regions` holds, per region, the counters that re-render just
+     * that region. A stream re-renders a region when either list changed.
+     *
+     * @param  list<string>  $regions
+     * @param  list<string>  $channels
+     * @return array{component: list<int>, regions: array<string, list<int>>}
+     */
+    public function snapshot(string $address, array $regions, array $channels = []): array
+    {
+        $component = [self::componentKey($address)];
+        foreach ($channels as $channel) {
+            $component[] = self::channelKey($channel);
+            $component[] = self::channelComponentKey($channel, $address);
+        }
+
+        $perRegion = [];
         foreach ($regions as $region) {
-            $keys[] = self::regionKey($address, $region);
+            $perRegion[$region] = [self::regionKey($address, $region)];
+            foreach ($channels as $channel) {
+                $perRegion[$region][] = self::channelRegionKey($channel, $address, $region);
+            }
         }
 
-        $values = $this->repository()->many($keys);
+        $values = $this->repository()->many(array_merge($component, ...array_values($perRegion)));
+        $read = fn (array $keys) => array_map(fn ($key) => (int) ($values[$key] ?? 0), $keys);
 
-        $snapshot = ['component' => (int) ($values[$keys[0]] ?? 0), 'regions' => []];
-        foreach ($regions as $i => $region) {
-            $snapshot['regions'][$region] = (int) ($values[$keys[$i + 1]] ?? 0);
-        }
-
-        return $snapshot;
+        return [
+            'component' => $read($component),
+            'regions' => array_map($read, $perRegion),
+        ];
     }
 
     public static function componentKey(string $address): string
@@ -57,6 +96,22 @@ class PushVersions
     {
         // Addresses never contain '#', so this cannot collide with another address.
         return self::PREFIX.$address.'#'.$region;
+    }
+
+    public static function channelKey(string $channel): string
+    {
+        // '@' never starts an address, and the hash keeps the key a fixed shape.
+        return self::PREFIX.'@'.sha1($channel);
+    }
+
+    public static function channelComponentKey(string $channel, string $address): string
+    {
+        return self::channelKey($channel).'|'.$address;
+    }
+
+    public static function channelRegionKey(string $channel, string $address, string $region): string
+    {
+        return self::channelComponentKey($channel, $address).'#'.$region;
     }
 
     protected function increment(string $key): void

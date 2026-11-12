@@ -14,6 +14,7 @@ use Native\Asgard\Tests\Fixtures\BadFragments;
 use Native\Asgard\Tests\Fixtures\BareScreen;
 use Native\Asgard\Tests\Fixtures\BladePromoScreen;
 use Native\Asgard\Tests\Fixtures\BladeScreen;
+use Native\Asgard\Tests\Fixtures\ChannelScreen;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\CounterScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
@@ -57,6 +58,8 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.counter' => CounterScreen::class,
             'app.native.screens.rows' => RowsScreen::class,
             'app.native.screens.blade' => BladeScreen::class,
+            'app.native.screens.channel' => ChannelScreen::class,
+            'app.native.screens.channel_two' => ChannelScreen::class,
         ]);
         $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
         $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
@@ -70,6 +73,7 @@ abstract class TestCase extends BaseTestCase
         self::$stream = null;
         ChildScreen::$calls = [];
         PromoScreen::$calls = [];
+        ChannelScreen::$extra = [];
 
         parent::tearDown();
     }

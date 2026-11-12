@@ -13,6 +13,7 @@ use Native\Asgard\ComponentRegistry;
  * @method static string|null resolve(string $address)
  * @method static array all()
  * @method static void push(string $component, ?string $region = null)
+ * @method static \Native\Asgard\PendingPush to(mixed ...$channels)
  *
  * @see AsgardManager
  */

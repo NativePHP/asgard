@@ -5,6 +5,7 @@ namespace Native\Asgard\Http;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use InvalidArgumentException;
 use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
@@ -13,6 +14,7 @@ use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Security\Wire;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\ServerScreen;
+use Native\Asgard\Support\Channels;
 use Native\Asgard\Support\ChromeValidator;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\FragmentValidator;
@@ -24,8 +26,12 @@ use Throwable;
 
 /**
  * Server-Sent Events for one component. Sends each subscribed region once on
- * connect, then re-renders regions whenever Asgard::push() bumps their
- * version, until the lifetime runs out or the client goes away.
+ * connect, then re-renders regions whenever Asgard::push() or Asgard::to()
+ * bumps a version the stream watches, until the lifetime runs out or the
+ * client goes away.
+ *
+ * When it opens, the stream joins the channels its component's channels()
+ * names, worked out once from the stream's state and the request's user.
  *
  * Every check happens before the first byte is streamed, so a bad request
  * gets the same JSON error the render endpoint would give.
@@ -73,9 +79,15 @@ class StreamController
             }
         }
 
+        try {
+            $channels = $this->channels($class, $platform, $state);
+        } catch (InvalidRequest $e) {
+            return $this->error(422, 'invalid_request', $e->getMessage());
+        }
+
         // Read versions before the first render, so a push that lands while
         // we render is still picked up on the first poll.
-        $seen = $this->versions->snapshot($address, $regions);
+        $seen = $this->versions->snapshot($address, $regions, $channels);
 
         // Render everything up front so bad state or a bad fragment is a
         // normal error response, not a broken stream.
@@ -93,7 +105,7 @@ class StreamController
         $secure = $this->secure($request);
 
         return new StreamedResponse(
-            fn () => $this->stream($secure, $class, $methods, $address, $regions, $platform, $state, $seen, $initial),
+            fn () => $this->stream($secure, $class, $methods, $address, $regions, $channels, $platform, $state, $seen, $initial),
             200,
             [
                 'Content-Type' => 'text/event-stream',
@@ -124,6 +136,58 @@ class StreamController
         }
 
         return $regions;
+    }
+
+    /**
+     * The channels this stream joins, from channels() on a component
+     * hydrated like a render. The app's middleware has already run, so
+     * auth() sees the request's user.
+     *
+     * A bad answer is a bug in the app. With app.debug on it throws. In
+     * production it is reported, the bad entries are dropped and the stream
+     * keeps the first 16 good ones, so the screen still works and still
+     * gets pushes to everyone. Any channel it misses only means fewer
+     * re-renders, never someone else's fragment.
+     *
+     * @param  class-string<ServerComponent>  $class
+     * @param  array<string, mixed>  $state
+     * @return list<string>
+     */
+    protected function channels(string $class, string $platform, array $state): array
+    {
+        $component = $this->container->make($class);
+        $component->setAsgardContext('', $platform);
+
+        Hydrator::hydrate($component, $state);
+
+        $names = [];
+        $problems = [];
+        foreach ($component->channels() as $i => $channel) {
+            try {
+                $names[] = Channels::name($channel);
+            } catch (InvalidArgumentException $e) {
+                $problems[] = "[{$i}] ".$e->getMessage();
+            }
+        }
+
+        $names = array_values(array_unique($names));
+
+        if (count($names) > Channels::MAX) {
+            $problems[] = 'it named '.count($names).' channels and a stream joins at most '.Channels::MAX.'.';
+            $names = array_slice($names, 0, Channels::MAX);
+        }
+
+        if ($problems !== []) {
+            $e = new InvalidArgumentException("{$class}::channels() returned bad channels: ".implode(' ', $problems));
+
+            if (config('app.debug')) {
+                throw $e;
+            }
+
+            report($e);
+        }
+
+        return $names;
     }
 
     /**
@@ -158,11 +222,12 @@ class StreamController
      * @param  class-string<ServerComponent>  $class
      * @param  array<string, string>  $methods
      * @param  list<string>  $regions
+     * @param  list<string>  $channels
      * @param  array<string, mixed>  $state
-     * @param  array{component: int, regions: array<string, int>}  $seen
+     * @param  array{component: list<int>, regions: array<string, list<int>>}  $seen
      * @param  array<string, array{fragment: array, chrome?: object}>  $initial
      */
-    protected function stream(SecureRequest $secure, string $class, array $methods, string $address, array $regions, string $platform, array $state, array $seen, array $initial): void
+    protected function stream(SecureRequest $secure, string $class, array $methods, string $address, array $regions, array $channels, string $platform, array $state, array $seen, array $initial): void
     {
         $lifetime = max(1, (int) config('asgard.stream.lifetime', 300));
         $poll = max(10, (int) config('asgard.stream.poll_ms', 500));
@@ -194,7 +259,7 @@ class StreamController
             }
 
             try {
-                $current = $this->versions->snapshot($address, $regions);
+                $current = $this->versions->snapshot($address, $regions, $channels);
             } catch (Throwable $e) {
                 // The push store is down. End the stream; the client reconnects.
                 report($e);
@@ -235,11 +300,11 @@ class StreamController
     /**
      * Counters only ever go up, so their sum does too. Informational for now.
      *
-     * @param  array{component: int, regions: array<string, int>}  $versions
+     * @param  array{component: list<int>, regions: array<string, list<int>>}  $versions
      */
     protected static function eventId(array $versions): string
     {
-        return (string) ($versions['component'] + array_sum($versions['regions']));
+        return (string) (array_sum($versions['component']) + array_sum(array_map('array_sum', $versions['regions'])));
     }
 
     /**

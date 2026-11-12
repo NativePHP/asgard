@@ -2,12 +2,15 @@
 
 namespace Native\Asgard;
 
+use Illuminate\Contracts\Broadcasting\HasBroadcastChannel;
 use InvalidArgumentException;
+use Native\Asgard\Support\Channels;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\PushVersions;
 
 /**
- * What the Asgard facade points at: the component and screen registries, plus push.
+ * What the Asgard facade points at: the component and screen registries,
+ * plus push() and to().
  */
 class Asgard
 {
@@ -53,13 +56,50 @@ class Asgard
     }
 
     /**
-     * Tell open streams for a component to re-render. With a region, only
-     * streams subscribed to that region re-render it.
+     * Tell every open stream for a component to re-render. With a region,
+     * only streams subscribed to that region re-render it.
      *
      * Takes a registered address or a registered class. A class registered
-     * under several addresses is pushed to all of them.
+     * under several addresses is pushed to all of them. Asgard::to() pushes
+     * to the streams in some channels only.
      */
     public function push(string $component, ?string $region = null): void
+    {
+        foreach ($this->addresses($component, $region) as $address) {
+            $this->versions->bump($address, $region);
+        }
+    }
+
+    /**
+     * Push to the streams that joined these channels, through their
+     * component's channels(). Takes channel names, models (named the way
+     * Laravel broadcasting names them, App.Models.User.5) or lists of them.
+     *
+     *     Asgard::to('promo.42')->push(PromoScreen::class, 'screen');
+     *     Asgard::to($user)->push();
+     *
+     * @param  string|HasBroadcastChannel|iterable<string|HasBroadcastChannel>  ...$channels
+     */
+    public function to(mixed ...$channels): PendingPush
+    {
+        $names = Channels::names($channels);
+
+        if ($names === []) {
+            throw new InvalidArgumentException('Asgard::to() needs at least one channel.');
+        }
+
+        return new PendingPush($this, $this->versions, $names);
+    }
+
+    /**
+     * The addresses a push for this component reaches, after checking the
+     * component is registered and the region is a #[Region] on it.
+     *
+     * @internal
+     *
+     * @return list<string>
+     */
+    public function addresses(string $component, ?string $region = null): array
     {
         $components = $this->registry->all();
 
@@ -79,8 +119,6 @@ class Asgard
             }
         }
 
-        foreach ($addresses as $address) {
-            $this->versions->bump($address, $region);
-        }
+        return $addresses;
     }
 }

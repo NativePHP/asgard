@@ -33,6 +33,10 @@ return [
     | Extra middleware for the endpoint (throttling, auth...). The route is
     | registered outside the `web` group on purpose: no session, no CSRF,
     | no cookies.
+    |
+    | Auth middleware here (auth:sanctum, say) is what makes a user channel
+    | from a component's channels() private. See "Targeted pushes" in the
+    | README.
     */
     'middleware' => [],
 
@@ -69,9 +73,10 @@ return [
     | to keep a screen open, or send streams to their own pool. FPM's
     | request_terminate_timeout must be longer than `lifetime`.
     |
-    | store:    cache store for push versions. Must be shared by the process
-    |           that calls Asgard::push() and the workers holding streams, so
-    |           not `array`. null means the default cache store.
+    | store:    cache store for push versions, channel ones included. Must
+    |           be shared by the process that calls Asgard::push() or
+    |           Asgard::to() and the workers holding streams, so not `array`.
+    |           null means the default cache store.
     | lifetime: seconds before the server closes a stream. The client
     |           reconnects and gets fresh fragments.
     | poll_ms:  how often each stream reads the push store.

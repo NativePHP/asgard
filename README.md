@@ -353,11 +353,88 @@ Because the endpoint is unauthenticated, anyone can open streams and tie up
 workers. Put a per-IP limit on it with `asgard.middleware` (`throttle:…`) or at
 the proxy.
 
+### Targeted pushes (channels)
+
+`Asgard::push()` reaches every open stream for a component. To reach only
+some, a component names the channels its streams join, and you push to those
+channels with `Asgard::to()`.
+
+```php
+class PromoScreen extends ServerScreen
+{
+    public int $id;
+
+    public function channels(): array
+    {
+        $channels = ["promo.{$this->id}"];
+
+        if (auth()->check()) {
+            $channels[] = 'user.'.auth()->id();   // or auth()->user()
+        }
+
+        return $channels;
+    }
+}
+```
+
+```php
+Asgard::to('promo.42')->push(PromoScreen::class, 'screen'); // one region, in promo.42
+Asgard::to('promo.42')->push(PromoScreen::class);           // the whole component, in promo.42
+Asgard::to(['user.5', 'user.9'])->push();                   // every stream in those channels
+Asgard::to($user)->push();                                  // App.Models.User.5
+```
+
+```sh
+php artisan asgard:push --to=user.5 --to=user.9
+php artisan asgard:push 'App\Asgard\PromoScreen' screen --to=promo.42
+```
+
+- `channels()` runs once when a stream opens, on a component hydrated from
+  the stream's state, after the app's middleware. So `auth()` sees the
+  request's user. The default is no channels.
+- A channel is a string of 1 to 200 bytes with no control characters, or an
+  Eloquent model (any `HasBroadcastChannel`), named the way Laravel
+  broadcasting names it: `App.Models.User.5`. Repeats are dropped, and a
+  stream joins at most 16.
+- A bad `channels()` answer is a bug in the app. With `app.debug` on, the
+  stream request fails with the exception. In production the problem is
+  reported, the bad entries are dropped and the stream keeps the first 16
+  good channels. It still opens and still gets pushes to everyone.
+- `to()` takes names, models or lists of them. The component and region are
+  checked as `push()` checks them, and a region needs a component.
+- A stream for a component in a joined channel re-renders a region when the
+  channel, the channel and component, or the channel, component and region is
+  pushed. Pushes to everyone still arrive as before.
+
+**`channels()` is the authorization step.** The device never sends channels
+and there is no separate check. But anyone holding the app's `ASGARD_KEY`
+(it ships inside the app) can open a stream with any state they like. So a
+channel built from client state, like `"promo.{$this->id}"`, is only as
+private as that state: anyone can join `promo.42` by sending `id` 42. A
+private channel must come from the authenticated user (`'user.'.auth()->id()`),
+with auth middleware such as `auth:sanctum` on the Asgard routes through
+`asgard.middleware`. Never build a user channel from a public prop, and check
+`auth()->check()` first so a guest does not join `user.`.
+
+A push carries no data. Each stream re-renders with its own state and its own
+user, so a channel push cannot leak one user's fragment to another. Your
+render code still has to authorize what it shows, exactly as it does for a
+normal render.
+
+Limits:
+
+- The device keeps one stream per component address. A screen covered by
+  another of the same route misses pushes until it is back on top. It
+  re-fetches when it comes back.
+- A stream works out its channels once. It does not notice a changed bearer
+  token (a sign-in, a sign-out, another user) until it reopens, at the latest
+  after `asgard.stream.lifetime` seconds.
+
 Config, under `asgard.stream`:
 
 | Key | Default | |
 | --- | --- | --- |
-| `store` | `null` (default cache store) | Cache store for push counters. `ASGARD_STREAM_STORE`. |
+| `store` | `null` (default cache store) | Cache store for push counters, channel counters included. `ASGARD_STREAM_STORE`. |
 | `lifetime` | `300` | Seconds before the server closes a stream. The client reconnects. `ASGARD_STREAM_LIFETIME`. |
 | `poll_ms` | `500` | How often each stream reads the push store. `ASGARD_STREAM_POLL_MS`. |
 
@@ -521,8 +598,8 @@ verifies on the stream it was sent on.
 - One `fragment` event per region on connect, in the order asked for.
 - After that, a `fragment` event for each region a push touched.
 - `: ping` every 15 seconds.
-- `id` is the sum of the push counters for this component and its subscribed
-  regions, so it only goes up while the store keeps its keys. It is
+- `id` is the sum of the push counters the stream watches (its component,
+  its subscribed regions and its channels), so it only goes up while the store keeps its keys. It is
   informational. A reconnect with `Last-Event-ID` still gets every region's
   current fragment first.
 - The server closes the stream after `asgard.stream.lifetime` seconds or
@@ -558,6 +635,9 @@ verifies on the stream it was sent on.
 - The stream endpoint applies the same checks as render to every region it
   is asked for, before any output. Re-renders use a fresh component hydrated
   from the original state. Pushes come only from server code.
+- Channels come only from the component's `channels()` on the server. They
+  are as private as what they are built from, so private channels must come
+  from the authenticated user, never from state.
 
 ## Tests
 
