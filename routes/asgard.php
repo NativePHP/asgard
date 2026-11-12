@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Native\Asgard\Http\Middleware\SealAsgardMessages;
 use Native\Asgard\Http\RenderController;
+use Native\Asgard\Http\RoutesController;
 use Native\Asgard\Http\SessionController;
 use Native\Asgard\Http\StreamController;
 
@@ -23,3 +24,7 @@ Route::match(['QUERY', 'POST'], $prefix.'/render', RenderController::class)
 Route::match(['QUERY', 'POST'], $prefix.'/stream', StreamController::class)
     ->middleware([SealAsgardMessages::class, ...$middleware])
     ->name('asgard.stream');
+
+Route::match(['QUERY', 'POST'], $prefix.'/routes', RoutesController::class)
+    ->middleware([SealAsgardMessages::class, ...$middleware])
+    ->name('asgard.routes');

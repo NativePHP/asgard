@@ -6,7 +6,9 @@ use LogicException;
 use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
+use Native\Asgard\Attributes\Screen;
 use Native\Asgard\ServerComponent;
+use Native\Asgard\ServerScreen;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
@@ -19,7 +21,9 @@ use ReflectionUnionType;
  * Reflection over a server component, done once per class.
  *
  * regions:    region name => method name, from #[Region] on public,
- *             non-static methods declared on the class itself.
+ *             non-static methods declared on the class itself. A
+ *             ServerScreen has exactly one, `screen` => `render`, and may
+ *             not declare any other.
  * uncompressed: names of regions declared with compress: false.
  * properties: property name => allowed builtin types, for public,
  *             non-static, non-readonly, typed, unlocked properties declared
@@ -95,6 +99,19 @@ final class ComponentMetadata
             }
         }
 
+        if ($reflection->isSubclassOf(ServerScreen::class)) {
+            if ($regions !== []) {
+                throw new LogicException("[{$class}] is a screen, so it has one body, render(). Move #[Region] methods to a ServerComponent.");
+            }
+
+            $regions = [ServerScreen::REGION => 'render'];
+            $screen = $reflection->getAttributes(Screen::class)[0] ?? null;
+
+            if ($screen !== null && ! $screen->newInstance()->compress) {
+                $uncompressed[] = ServerScreen::REGION;
+            }
+        }
+
         $properties = [];
         foreach ($reflection->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
             if ($property->isStatic()
@@ -148,7 +165,8 @@ final class ComponentMetadata
                 || $method->getDeclaringClass()->getName() !== $class
                 || str_starts_with($method->getName(), '__')
                 || $method->getAttributes(Action::class) === []
-                || $method->getAttributes(Region::class) !== []) {
+                || $method->getAttributes(Region::class) !== []
+                || ($reflection->isSubclassOf(ServerScreen::class) && in_array($method->getName(), ['render', 'chrome'], true))) {
                 continue;
             }
 

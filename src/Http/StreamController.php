@@ -11,6 +11,8 @@ use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Security\Wire;
 use Native\Asgard\ServerComponent;
+use Native\Asgard\ServerScreen;
+use Native\Asgard\Support\ChromeValidator;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\FragmentValidator;
 use Native\Asgard\Support\Hydrator;
@@ -127,8 +129,9 @@ class StreamController
      * A fresh component, hydrated from the original state, every time.
      *
      * @param  class-string<ServerComponent>  $class
+     *                                                A screen's answer carries its chrome too, as render's does.
      * @param  array<string, mixed>  $state
-     * @return array<string, mixed>|list<array<string, mixed>>
+     * @return array{fragment: array<string, mixed>|list<array<string, mixed>>, chrome?: object}
      */
     protected function render(string $class, string $method, string $region, string $platform, array $state): array
     {
@@ -137,7 +140,13 @@ class StreamController
 
         Hydrator::hydrate($component, $state);
 
-        return FragmentValidator::validate($this->container->call([$component, $method]));
+        $answer = ['fragment' => FragmentValidator::validate($this->container->call([$component, $method]))];
+
+        if ($component instanceof ServerScreen) {
+            $answer['chrome'] = (object) ChromeValidator::validate($component->chrome());
+        }
+
+        return $answer;
     }
 
     /**
@@ -146,7 +155,7 @@ class StreamController
      * @param  list<string>  $regions
      * @param  array<string, mixed>  $state
      * @param  array{component: int, regions: array<string, int>}  $seen
-     * @param  array<string, array<string, mixed>|list<array<string, mixed>>>  $initial
+     * @param  array<string, array{fragment: array, chrome?: object}>  $initial
      */
     protected function stream(SecureRequest $secure, string $class, array $methods, string $address, array $regions, string $platform, array $state, array $seen, array $initial): void
     {
@@ -162,8 +171,8 @@ class StreamController
         $this->write('retry: '.self::RETRY_MS."\n\n");
 
         $id = self::eventId($seen);
-        foreach ($initial as $region => $fragment) {
-            $this->send($secure, $id, $region, $fragment, ComponentMetadata::for($class)->compresses($region));
+        foreach ($initial as $region => $answer) {
+            $this->send($secure, $id, $region, $answer, ComponentMetadata::for($class)->compresses($region));
         }
 
         while (! $this->clock->aborted()) {
@@ -197,7 +206,7 @@ class StreamController
                 }
 
                 try {
-                    $fragment = $this->render($class, $methods[$region], $region, $platform, $state);
+                    $answer = $this->render($class, $methods[$region], $region, $platform, $state);
                 } catch (Throwable $e) {
                     // Headers are long gone, so there is no error response to
                     // give. Report it and leave the device on its last fragment.
@@ -206,7 +215,7 @@ class StreamController
                     continue;
                 }
 
-                $this->send($secure, $id, $region, $fragment, ComponentMetadata::for($class)->compresses($region));
+                $this->send($secure, $id, $region, $answer, ComponentMetadata::for($class)->compresses($region));
             }
 
             $seen = $current;
@@ -233,12 +242,12 @@ class StreamController
      * with enc_s and signed with sig_s, bound to the request that opened this
      * stream (§8.1).
      *
-     * @param  array<string, mixed>|list<array<string, mixed>>  $fragment
+     * @param  array{fragment: array, chrome?: object}  $answer
      */
-    protected function send(SecureRequest $secure, string $id, string $region, array $fragment, bool $compress = true): void
+    protected function send(SecureRequest $secure, string $id, string $region, array $answer, bool $compress = true): void
     {
         $plaintext = json_encode(
-            ['protocol' => self::PROTOCOL, 'region' => $region, 'fragment' => $fragment],
+            ['protocol' => self::PROTOCOL, 'region' => $region, ...$answer],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
         );
 

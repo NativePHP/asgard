@@ -9,10 +9,13 @@ use Native\Asgard\Security\Ecdh;
 use Native\Asgard\Security\SessionKeys;
 use Native\Asgard\Security\Wire;
 use Native\Asgard\Support\ComponentMetadata;
+use Native\Asgard\Tests\Fixtures\BadChromeScreen;
 use Native\Asgard\Tests\Fixtures\BadFragments;
+use Native\Asgard\Tests\Fixtures\BareScreen;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\CounterScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
+use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RowsScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
@@ -51,6 +54,7 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.counter' => CounterScreen::class,
             'app.native.screens.rows' => RowsScreen::class,
         ]);
+        $app['config']->set('asgard.screens', [PromoScreen::class, BareScreen::class, BadChromeScreen::class]);
     }
 
     protected function tearDown(): void
@@ -59,6 +63,7 @@ abstract class TestCase extends BaseTestCase
         HomeScreen::$calls = [];
         self::$stream = null;
         ChildScreen::$calls = [];
+        PromoScreen::$calls = [];
 
         parent::tearDown();
     }

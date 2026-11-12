@@ -9,8 +9,10 @@ use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
+use Native\Asgard\ServerScreen;
 use Native\Asgard\Support\ActionInvoker;
 use Native\Asgard\Support\Callback;
+use Native\Asgard\Support\ChromeValidator;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\FragmentValidator;
 use Native\Asgard\Support\Hydrator;
@@ -77,14 +79,25 @@ class RenderController
             return $this->invalidFragment($e, $class, $method);
         }
 
-        // An action's answer is the region's fragment, so it follows the region's choice.
-        $request->attributes->set(SecureRequest::COMPRESS, $metadata->compresses($payload['region']));
-
-        return response()->json([
+        $answer = [
             'protocol' => self::PROTOCOL,
             'region' => $payload['region'],
             'fragment' => $fragment,
-        ], 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        ];
+
+        // A screen's chrome travels as its own part, checked on its own.
+        if ($component instanceof ServerScreen) {
+            try {
+                $answer['chrome'] = (object) ChromeValidator::validate($component->chrome());
+            } catch (InvalidFragment $e) {
+                return $this->invalidFragment($e, $class, 'chrome');
+            }
+        }
+
+        // An action's answer is the region's fragment, so it follows the region's choice.
+        $request->attributes->set(SecureRequest::COMPRESS, $metadata->compresses($payload['region']));
+
+        return response()->json($answer, 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
     /**

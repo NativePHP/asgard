@@ -5,10 +5,16 @@ namespace Native\Asgard\Support;
 use Illuminate\Support\Facades\Log;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\ServerComponent;
+use Native\Asgard\ServerScreen;
 
 /**
  * Writes untrusted client state into a component's own public props.
- * Scalars, null and arrays of those only. No coercion, no objects.
+ * Scalars, null and arrays of those only. No objects.
+ *
+ * No coercion either, except for a ServerScreen: its state is route
+ * parameters and the query string, which are always strings on the wire,
+ * so a numeric string fills an int or float property and "true", "false",
+ * "1" or "0" fills a bool. Anything else still has to match exactly.
  */
 final class Hydrator
 {
@@ -31,6 +37,10 @@ final class Hydrator
 
             if (! self::isPlain($value, 0)) {
                 throw new InvalidRequest("State [{$key}] must be a scalar, null or an array of those.");
+            }
+
+            if ($component instanceof ServerScreen && is_string($value)) {
+                $value = self::fromRoute($value, $properties[$key]);
             }
 
             $component->{$key} = self::cast($key, $value, $properties[$key]);
@@ -61,6 +71,33 @@ final class Hydrator
         }
 
         return true;
+    }
+
+    /**
+     * A route string converted to the first type the property takes that it
+     * reads as. A string property takes it as it is.
+     *
+     * @param  array{types: list<string>, nullable: bool}  $spec
+     */
+    private static function fromRoute(string $value, array $spec): mixed
+    {
+        if (in_array('string', $spec['types'], true)) {
+            return $value;
+        }
+
+        foreach ($spec['types'] as $type) {
+            if ($type === 'int' && preg_match('/^-?(0|[1-9][0-9]{0,17})$/D', $value)) {
+                return (int) $value;
+            }
+            if ($type === 'float' && is_numeric($value) && is_finite((float) $value) && trim($value) === $value) {
+                return (float) $value;
+            }
+            if ($type === 'bool' && in_array($value, ['true', 'false', '1', '0'], true)) {
+                return $value === 'true' || $value === '1';
+            }
+        }
+
+        return $value;
     }
 
     /** @param array{types: list<string>, nullable: bool} $spec */

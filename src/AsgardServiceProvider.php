@@ -19,6 +19,15 @@ class AsgardServiceProvider extends ServiceProvider
             $app['config']->get('asgard.components', [])
         ));
 
+        $this->app->singleton(ScreenRegistry::class, fn ($app) => new ScreenRegistry(
+            $app->make(ComponentRegistry::class),
+            $app['config']->get('asgard.screens', []),
+        ));
+
+        // Screens are components too, so whatever looks a component up must
+        // see them: registering the screens fills in the component map.
+        $this->app->afterResolving(ComponentRegistry::class, fn ($registry, $app) => $app->make(ScreenRegistry::class));
+
         $this->app->singleton(PushVersions::class, fn ($app) => new PushVersions(
             $app['cache'],
             $app['config']->get('asgard.stream.store'),
