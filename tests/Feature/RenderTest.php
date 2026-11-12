@@ -150,13 +150,13 @@ it('strips internal prop keys', function () {
         ->assertExactJson([
             'protocol' => 1,
             'region' => 'props',
-            'fragment' => ['type' => 'button', 'props' => ['label' => 'Go'], 'on_press' => 'go()'],
+            'fragment' => ['type' => 'button', 'props' => ['label' => 'Go'], 'on_press' => ['call' => 'go', 'args' => [1]]],
         ]);
 });
 
 it('serialises nodes into the protocol shape', function () {
     $node = Node::make('column')->key('x')->class('p-4')->props(['a' => 1])
-        ->onPress('tap()')->onLongPress('hold()')->onDoubleTap('dbl()')->onChange('c()')->onSubmit('s()')
+        ->onPress('tap', 3, 'x')->onLongPressClient('hold')->onDoubleTap('dbl')->onChangeClient('c', ['a' => [1]])->onSubmit('s', null, 1.5, true)
         ->children(Node::text('Hi'), [Node::spacer(), Node::divider()], ['type' => 'button', 'props' => ['label' => 'Go']]);
 
     expect(json_decode(json_encode($node), true))->toBe([
@@ -164,11 +164,11 @@ it('serialises nodes into the protocol shape', function () {
         'key' => 'x',
         'props' => ['a' => 1],
         'class' => 'p-4',
-        'on_press' => 'tap()',
-        'on_long_press' => 'hold()',
-        'on_double_tap' => 'dbl()',
-        'on_change' => 'c()',
-        'on_submit' => 's()',
+        'on_press' => ['call' => 'tap', 'args' => [3, 'x']],
+        'on_long_press' => ['call' => 'hold', 'args' => [], 'target' => 'client'],
+        'on_double_tap' => ['call' => 'dbl', 'args' => []],
+        'on_change' => ['call' => 'c', 'args' => [['a' => [1]]], 'target' => 'client'],
+        'on_submit' => ['call' => 's', 'args' => [null, 1.5, true]],
         'children' => [
             ['type' => 'text', 'props' => ['text' => 'Hi']],
             ['type' => 'spacer'],
@@ -176,6 +176,9 @@ it('serialises nodes into the protocol shape', function () {
             ['type' => 'button', 'props' => ['label' => 'Go']],
         ],
     ]);
+
+    expect(Node::button('Go')->onPressClient('celebrate')->toArray()['on_press'])
+        ->toBe(['call' => 'celebrate', 'args' => [], 'target' => 'client']);
 });
 
 it('only registers real server components', function () {

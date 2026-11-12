@@ -22,7 +22,7 @@ class BadFragments extends ServerComponent
         return [
             'type' => 'button',
             'props' => ['label' => 'Go', '_press' => 'nuke', 'native-key' => 'x', 'native:id' => 'y', '_navigate' => '/admin'],
-            'on_press' => 'go()',
+            'on_press' => ['call' => 'go', 'args' => [1]],
         ];
     }
 
@@ -30,5 +30,13 @@ class BadFragments extends ServerComponent
     public function garbage(): string
     {
         return 'not a node';
+    }
+
+    public string|int|bool|array|null $callback = null;
+
+    #[Region('callback')]
+    public function callback(): array
+    {
+        return ['type' => 'button', 'on_press' => $this->callback];
     }
 }

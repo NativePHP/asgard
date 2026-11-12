@@ -22,6 +22,7 @@ php artisan vendor:publish --tag=asgard-config
 ## Writing a server component
 
 ```php
+use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Node;
@@ -31,6 +32,8 @@ class HomeScreen extends ServerComponent
 {
     public string $name = 'friend';   // hydrated from the client's state
 
+    public int $waves = 0;
+
     #[Locked]
     public string $role = 'guest';    // never written by the client
 
@@ -39,8 +42,16 @@ class HomeScreen extends ServerComponent
     {
         return Node::column(
             Node::text("Hello, {$this->name}"),
-            Node::button('Wave')->onPress("wave()"),
+            Node::text("Waves: {$this->waves}"),
+            Node::button('Wave')->onPress('wave', 1),          // runs wave(1) here
+            Node::button('Party')->onPressClient('celebrate'), // runs on the device
         )->class('p-4 gap-2');
+    }
+
+    #[Action]
+    public function wave(int $times): void
+    {
+        $this->waves += $times;
     }
 }
 ```
@@ -68,10 +79,33 @@ available inside them.
 ### Node builder
 
 `Node::make($type)` then `->key()`, `->props([...])` (merges), `->prop($k, $v)`,
-`->class()`, `->children(...)`, `->onPress()`, `->onLongPress()`,
-`->onDoubleTap()`, `->onChange()`, `->onSubmit()`. Shortcuts:
+`->class()`, `->children(...)`, and the callbacks `->onPress()`,
+`->onLongPress()`, `->onDoubleTap()`, `->onChange()`, `->onSubmit()`. Shortcuts:
 `Node::column(...$children)`, `Node::row(...$children)`, `Node::text('Hi')`,
 `Node::button('Go')`, `Node::spacer()`, `Node::divider()`.
+
+Each callback takes a method name and its args: `->onPress('shuffle', 3, 'x')`.
+That targets an `#[Action]` method on the server. The `…Client` twin of each
+(`->onPressClient('celebrate')`) targets an action the device runs itself.
+Names must match `^[A-Za-z_][A-Za-z0-9_]{0,99}$`. Args must be null, bools,
+numbers, strings, or lists and objects of those, at most 16 args nested at
+most 4 deep. Anything else throws `InvalidFragment` when you build the node.
+
+### Actions
+
+A tap on a server callback sends the render request again with an `action`
+key. The server hydrates the component, runs the action, then renders the
+requested region and returns it. Changes the action makes to props only live
+for that request. They are not sent back as state.
+
+An action method must be public, non-static, declared on the registered class
+itself (or a trait it uses), and carry `#[Action]`. It cannot also be a
+`#[Region]`, and `__*` methods never count. Its params may only be typed
+`string`, `int`, `float`, `bool`, `array`, `mixed`, `true`, `false`, nullable
+versions of those, or left untyped. A class or interface type, `callable`,
+`object`, `iterable`, `self` or a by-reference param means the method is never
+callable from the wire. Args are passed by position with no container
+injection and no model or enum binding.
 
 ## Wire contract (v0)
 
@@ -93,6 +127,15 @@ QUERY, so use the POST form there.
 {"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon"},"platform":"ios"}
 ```
 
+An action request adds `action`. `call` and `args` are both required.
+`target` may be left out or set to `"server"`. Any other value, including
+`"client"`, is a 422.
+
+```json
+{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon"},"platform":"ios",
+ "action":{"call":"wave","args":[1]}}
+```
+
 `component` is the client component's FQCN in dot notation with each segment
 snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
 `{"error":"invalid_request","message":"…"}`.
@@ -106,13 +149,23 @@ snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
 `fragment` is one node or a list of nodes:
 `{type, key?, props?, class?, on_press?, on_long_press?, on_double_tap?, on_change?, on_submit?, children?}`.
 
+Each callback slot is an object, never a string:
+
+```json
+"on_press": {"call": "shuffle", "args": [3, "x"]}
+"on_press": {"call": "celebrate", "args": [], "target": "client"}
+```
+
+No `target` means the server. An explicit `"server"` is dropped on the way out.
+
 **Errors:**
 
 | Status | Body | When |
 | --- | --- | --- |
 | 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare. Same body for both. |
+| 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[Action]` on the component, or the arg count doesn't fit it. |
 | 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`. |
-| 422 | `{"error":"invalid_request","message":…}` | Bad body, or state that doesn't fit a prop's type. |
+| 422 | `{"error":"invalid_request","message":…}` | Bad body, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment. The message is included in debug. |
 
 ## Security rules
@@ -128,7 +181,15 @@ snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
   are `string`, `int`, `float`, `bool`, `array` and nullable versions. Values
   must be scalars, null or arrays of those; no coercion and no objects. A
   mismatch is 422. Unknown keys are ignored, and logged when `app.debug` is on.
-- Fragments are validated before they leave. Screen chrome (`top_bar*`,
+- An action is only reachable if a public, non-static, non-magic method
+  declared on the component class carries `#[Action]` and not `#[Region]`.
+  Methods on `ServerComponent` and on parent classes never count. Params are
+  limited to plain JSON types, and each arg is type checked strictly before
+  the call (no `"5"` into `int`). The wire `call` is only ever a key into that
+  map, and region resolution happens first, so an action never runs for a
+  region that doesn't exist.
+- Fragments are validated before they leave. Callback slots must be
+  `{call, args, target?}` objects. Screen chrome (`top_bar*`,
   `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are
   rejected. Props keys starting `_`, `native-` or `native:` are stripped.
   Unknown node fields are rejected.

@@ -3,13 +3,15 @@
 namespace Native\Asgard;
 
 use JsonSerializable;
+use Native\Asgard\Exceptions\InvalidFragment;
+use Native\Asgard\Support\Callback;
 
 /**
  * Fluent builder for one fragment node (protocol §9.1).
  *
  *     Node::column(
  *         Node::text('Hello'),
- *         Node::make('button')->props(['label' => 'Go'])->onPress("go()"),
+ *         Node::make('button')->props(['label' => 'Go'])->onPress('go'),
  *     )->class('p-4 gap-2');
  */
 class Node implements JsonSerializable
@@ -21,7 +23,7 @@ class Node implements JsonSerializable
 
     protected ?string $class = null;
 
-    /** @var array<string, string> */
+    /** @var array<string, array{call: string, args: list<mixed>, target?: 'client'}> */
     protected array $callbacks = [];
 
     /** @var list<Node|array<string, mixed>> */
@@ -107,34 +109,71 @@ class Node implements JsonSerializable
         return $this;
     }
 
-    public function onPress(string $expression): static
+    /** Runs the #[Action] method on the server, then re-renders the region. */
+    public function onPress(string $method, mixed ...$args): static
     {
-        return $this->on('on_press', $expression);
+        return $this->on('on_press', $method, $args, 'server');
     }
 
-    public function onLongPress(string $expression): static
+    /** Runs a client-side action on the device. */
+    public function onPressClient(string $method, mixed ...$args): static
     {
-        return $this->on('on_long_press', $expression);
+        return $this->on('on_press', $method, $args, 'client');
     }
 
-    public function onDoubleTap(string $expression): static
+    public function onLongPress(string $method, mixed ...$args): static
     {
-        return $this->on('on_double_tap', $expression);
+        return $this->on('on_long_press', $method, $args, 'server');
     }
 
-    public function onChange(string $expression): static
+    public function onLongPressClient(string $method, mixed ...$args): static
     {
-        return $this->on('on_change', $expression);
+        return $this->on('on_long_press', $method, $args, 'client');
     }
 
-    public function onSubmit(string $expression): static
+    public function onDoubleTap(string $method, mixed ...$args): static
     {
-        return $this->on('on_submit', $expression);
+        return $this->on('on_double_tap', $method, $args, 'server');
     }
 
-    protected function on(string $event, string $expression): static
+    public function onDoubleTapClient(string $method, mixed ...$args): static
     {
-        $this->callbacks[$event] = $expression;
+        return $this->on('on_double_tap', $method, $args, 'client');
+    }
+
+    public function onChange(string $method, mixed ...$args): static
+    {
+        return $this->on('on_change', $method, $args, 'server');
+    }
+
+    public function onChangeClient(string $method, mixed ...$args): static
+    {
+        return $this->on('on_change', $method, $args, 'client');
+    }
+
+    public function onSubmit(string $method, mixed ...$args): static
+    {
+        return $this->on('on_submit', $method, $args, 'server');
+    }
+
+    public function onSubmitClient(string $method, mixed ...$args): static
+    {
+        return $this->on('on_submit', $method, $args, 'client');
+    }
+
+    /** @param array<int|string, mixed> $args */
+    protected function on(string $event, string $method, array $args, string $target): static
+    {
+        if ($problem = Callback::nameProblem($method) ?? Callback::argsProblem($args)) {
+            throw new InvalidFragment("{$event}: {$problem}");
+        }
+
+        $callback = ['call' => $method, 'args' => $args];
+        if ($target === 'client') {
+            $callback['target'] = 'client';
+        }
+
+        $this->callbacks[$event] = $callback;
 
         return $this;
     }

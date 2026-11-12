@@ -6,6 +6,7 @@ use Illuminate\Testing\TestResponse;
 use Native\Asgard\AsgardServiceProvider;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Tests\Fixtures\BadFragments;
+use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
@@ -22,6 +23,7 @@ abstract class TestCase extends BaseTestCase
         $app['config']->set('asgard.components', [
             'app.native.screens.home' => HomeScreen::class,
             'app.native.screens.bad' => BadFragments::class,
+            'app.native.screens.child' => ChildScreen::class,
         ]);
     }
 
@@ -29,6 +31,7 @@ abstract class TestCase extends BaseTestCase
     {
         ComponentMetadata::flush();
         HomeScreen::$calls = [];
+        ChildScreen::$calls = [];
 
         parent::tearDown();
     }

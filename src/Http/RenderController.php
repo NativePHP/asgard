@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Support\ActionInvoker;
+use Native\Asgard\Support\Callback;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\FragmentValidator;
 use Native\Asgard\Support\Hydrator;
@@ -37,10 +39,20 @@ class RenderController
 
         // Plain array lookups only. The wire strings never name a class or method.
         $class = $this->registry->resolve($payload['component']);
-        $method = $class ? (ComponentMetadata::for($class)->regions[$payload['region']] ?? null) : null;
+        $metadata = $class ? ComponentMetadata::for($class) : null;
+        $method = $metadata?->regions[$payload['region']] ?? null;
 
         if ($class === null || $method === null) {
             return response()->json(['error' => 'unknown_component'], 404);
+        }
+
+        // Same rule for actions: the wire `call` is only a key into the map of
+        // #[Action] methods built by reflection. Anything else is unknown.
+        $action = $payload['action'];
+        $actionSpec = $action ? ($metadata->actions[$action['call']] ?? null) : null;
+
+        if ($action && ($actionSpec === null || ! ActionInvoker::accepts($actionSpec, count($action['args'])))) {
+            return response()->json(['error' => 'unknown_action'], 404);
         }
 
         $component = $this->container->make($class);
@@ -48,6 +60,10 @@ class RenderController
 
         try {
             Hydrator::hydrate($component, $payload['state']);
+
+            if ($action) {
+                ActionInvoker::invoke($component, $action['call'], $actionSpec, $action['args']);
+            }
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
@@ -72,7 +88,7 @@ class RenderController
     }
 
     /**
-     * @return array{component: string, region: string, state: array<string, mixed>, platform: string}
+     * @return array{component: string, region: string, state: array<string, mixed>, platform: string, action: array{call: string, args: list<mixed>}|null}
      */
     protected function payload(Request $request): array
     {
@@ -115,7 +131,36 @@ class RenderController
             throw new InvalidRequest('platform must be ios or android.');
         }
 
-        return compact('component', 'region', 'state', 'platform');
+        $action = array_key_exists('action', $body) ? $this->action($body['action']) : null;
+
+        return compact('component', 'region', 'state', 'platform', 'action');
+    }
+
+    /** @return array{call: string, args: list<mixed>} */
+    protected function action(mixed $action): array
+    {
+        if (! is_array($action) || array_is_list($action)) {
+            throw new InvalidRequest('action must be an object.');
+        }
+
+        $extra = array_diff(array_map('strval', array_keys($action)), ['call', 'args', 'target']);
+        if ($extra !== []) {
+            throw new InvalidRequest('action has unknown fields.');
+        }
+
+        if (array_key_exists('target', $action) && $action['target'] !== 'server') {
+            throw new InvalidRequest('action.target must be "server" when present. Client actions run on the device.');
+        }
+
+        if (! array_key_exists('call', $action) || ! array_key_exists('args', $action)) {
+            throw new InvalidRequest('action needs both call and args.');
+        }
+
+        if ($problem = Callback::nameProblem($action['call']) ?? Callback::argsProblem($action['args'])) {
+            throw new InvalidRequest("action: {$problem}");
+        }
+
+        return ['call' => $action['call'], 'args' => $action['args']];
     }
 
     protected function error(int $status, string $error, string $message): JsonResponse

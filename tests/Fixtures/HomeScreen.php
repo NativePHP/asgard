@@ -2,6 +2,7 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
+use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Node;
@@ -60,5 +61,135 @@ class HomeScreen extends ServerComponent
         static::$calls[] = 'secret';
 
         return Node::text('secret');
+    }
+
+    #[Action]
+    public function shuffle(int $by = 1, string $suffix = ''): void
+    {
+        static::$calls[] = 'shuffle';
+        $this->count += $by;
+        $this->name .= $suffix;
+    }
+
+    #[Action]
+    public function promote(): void
+    {
+        static::$calls[] = 'promote';
+        $this->role = 'admin';
+    }
+
+    #[Action]
+    public function needsTwo(int $a, int $b): void
+    {
+        static::$calls[] = 'needsTwo';
+        $this->count = $a + $b;
+    }
+
+    #[Action]
+    public function sum(int ...$numbers): void
+    {
+        static::$calls[] = 'sum';
+        $this->count = array_sum($numbers);
+    }
+
+    #[Action]
+    public function lists(array ...$lists): void
+    {
+        static::$calls[] = 'lists';
+    }
+
+    #[Action]
+    public function anything(mixed $value, $untyped = null, ?float $ratio = null, int|string|null $id = null): void
+    {
+        static::$calls[] = 'anything';
+        $this->tags = [$value, $untyped, $ratio, $id];
+    }
+
+    public function unmarked(): void
+    {
+        static::$calls[] = 'unmarked';
+    }
+
+    #[Action]
+    #[Region('both')]
+    public function both(): Node
+    {
+        static::$calls[] = 'both';
+
+        return Node::text('both');
+    }
+
+    #[Action]
+    public static function staticAction(): void
+    {
+        static::$calls[] = 'staticAction';
+    }
+
+    #[Action]
+    protected function protectedAction(): void
+    {
+        static::$calls[] = 'protectedAction';
+    }
+
+    #[Action]
+    private function privateAction(): void
+    {
+        static::$calls[] = 'privateAction';
+    }
+
+    #[Action]
+    public function __invoke(): void
+    {
+        static::$calls[] = '__invoke';
+    }
+
+    #[Action]
+    public function __call(string $name, array $arguments): mixed
+    {
+        static::$calls[] = '__call';
+
+        return null;
+    }
+
+    #[Action]
+    public function withModel(HomeScreen $other): void
+    {
+        static::$calls[] = 'withModel';
+    }
+
+    #[Action]
+    public function withInterface(\Countable $things): void
+    {
+        static::$calls[] = 'withInterface';
+    }
+
+    #[Action]
+    public function withSelf(?self $other = null): void
+    {
+        static::$calls[] = 'withSelf';
+    }
+
+    #[Action]
+    public function withCallable(callable $fn): void
+    {
+        static::$calls[] = 'withCallable';
+    }
+
+    #[Action]
+    public function withObject(object $thing): void
+    {
+        static::$calls[] = 'withObject';
+    }
+
+    #[Action]
+    public function withReference(int &$count): void
+    {
+        static::$calls[] = 'withReference';
+    }
+
+    #[Action]
+    public function withUnion(int|\Countable $thing): void
+    {
+        static::$calls[] = 'withUnion';
     }
 }

@@ -3,13 +3,16 @@
 namespace Native\Asgard\Support;
 
 use LogicException;
+use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\ServerComponent;
 use ReflectionClass;
 use ReflectionMethod;
 use ReflectionNamedType;
+use ReflectionParameter;
 use ReflectionProperty;
+use ReflectionType;
 use ReflectionUnionType;
 
 /**
@@ -20,6 +23,12 @@ use ReflectionUnionType;
  * properties: property name => allowed builtin types, for public,
  *             non-static, non-readonly, typed, unlocked properties declared
  *             on the class itself.
+ * actions:    method name => parameter spec, from #[Action] on public,
+ *             non-static, non-magic methods declared on the class itself
+ *             that are not also regions. Methods whose parameters could
+ *             take anything other than plain JSON values (class types,
+ *             callable, by-reference...) are left out, so they can never
+ *             be called from the wire.
  */
 final class ComponentMetadata
 {
@@ -29,10 +38,12 @@ final class ComponentMetadata
     /**
      * @param  array<string, string>  $regions
      * @param  array<string, array{types: list<string>, nullable: bool}>  $properties
+     * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
      */
     private function __construct(
         public readonly array $regions,
         public readonly array $properties,
+        public readonly array $actions = [],
     ) {}
 
     /** @param class-string<ServerComponent> $class */
@@ -116,6 +127,120 @@ final class ComponentMetadata
             $properties[$property->getName()] = ['types' => $types, 'nullable' => $nullable];
         }
 
-        return new self($regions, $properties);
+        $actions = [];
+        foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+            if ($method->isStatic()
+                || $method->isAbstract()
+                || $method->getDeclaringClass()->getName() !== $class
+                || str_starts_with($method->getName(), '__')
+                || $method->getAttributes(Action::class) === []
+                || $method->getAttributes(Region::class) !== []) {
+                continue;
+            }
+
+            $spec = self::actionSpec($method);
+            if ($spec !== null) {
+                $actions[$method->getName()] = $spec;
+            }
+        }
+
+        return new self($regions, $properties, $actions);
+    }
+
+    /** Types an action parameter may declare. Everything else refuses the action. */
+    private const ACTION_TYPES = ['string', 'int', 'float', 'bool', 'array', 'false', 'true', 'null', 'mixed'];
+
+    private const SCALAR_TYPES = ['string', 'int', 'float', 'bool', 'false', 'true'];
+
+    /**
+     * @return array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}|null
+     */
+    private static function actionSpec(ReflectionMethod $method): ?array
+    {
+        $params = [];
+        $variadic = null;
+        $scalarVariadic = false;
+
+        foreach ($method->getParameters() as $parameter) {
+            $spec = self::parameterSpec($parameter);
+            if ($spec === null) {
+                return null;
+            }
+
+            if ($parameter->isVariadic()) {
+                $variadic = $spec;
+                $scalarVariadic = $spec['types'] !== null
+                    && array_diff($spec['types'], self::SCALAR_TYPES) === [];
+            } else {
+                $params[] = $spec;
+            }
+        }
+
+        return [
+            'params' => $params,
+            'required' => $method->getNumberOfRequiredParameters(),
+            'variadic' => $variadic,
+            'scalarVariadic' => $scalarVariadic,
+        ];
+    }
+
+    /**
+     * types null means any JSON value (untyped or mixed).
+     *
+     * @return array{types: list<string>|null, nullable: bool}|null
+     */
+    private static function parameterSpec(ReflectionParameter $parameter): ?array
+    {
+        if ($parameter->isPassedByReference()) {
+            return null;
+        }
+
+        $type = $parameter->getType();
+        if ($type === null) {
+            return ['types' => null, 'nullable' => true];
+        }
+
+        $named = self::namedTypes($type);
+        if ($named === null) {
+            return null;
+        }
+
+        $types = [];
+        $nullable = $type->allowsNull();
+        foreach ($named as $part) {
+            if (! $part->isBuiltin() || ! in_array($part->getName(), self::ACTION_TYPES, true)) {
+                return null; // class, interface, self, callable, iterable, object...
+            }
+            if ($part->getName() === 'mixed') {
+                return ['types' => null, 'nullable' => true];
+            }
+            if ($part->getName() !== 'null') {
+                $types[] = $part->getName();
+            }
+        }
+
+        return ['types' => $types, 'nullable' => $nullable];
+    }
+
+    /** @return list<ReflectionNamedType>|null null for intersection or DNF types */
+    private static function namedTypes(ReflectionType $type): ?array
+    {
+        if ($type instanceof ReflectionNamedType) {
+            return [$type];
+        }
+
+        if ($type instanceof ReflectionUnionType) {
+            $parts = [];
+            foreach ($type->getTypes() as $part) {
+                if (! $part instanceof ReflectionNamedType) {
+                    return null;
+                }
+                $parts[] = $part;
+            }
+
+            return $parts;
+        }
+
+        return null;
     }
 }
