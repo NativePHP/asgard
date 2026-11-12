@@ -20,6 +20,7 @@ use ReflectionUnionType;
  *
  * regions:    region name => method name, from #[Region] on public,
  *             non-static methods declared on the class itself.
+ * uncompressed: names of regions declared with compress: false.
  * properties: property name => allowed builtin types, for public,
  *             non-static, non-readonly, typed, unlocked properties declared
  *             on the class itself.
@@ -37,6 +38,7 @@ final class ComponentMetadata
 
     /**
      * @param  array<string, string>  $regions
+     * @param  list<string>  $uncompressed
      * @param  array<string, array{types: list<string>, nullable: bool}>  $properties
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
      */
@@ -44,7 +46,13 @@ final class ComponentMetadata
         public readonly array $regions,
         public readonly array $properties,
         public readonly array $actions = [],
+        public readonly array $uncompressed = [],
     ) {}
+
+    public function compresses(string $region): bool
+    {
+        return ! in_array($region, $this->uncompressed, true);
+    }
 
     /** @param class-string<ServerComponent> $class */
     public static function for(string $class): self
@@ -65,19 +73,25 @@ final class ComponentMetadata
         $reflection = new ReflectionClass($class);
 
         $regions = [];
+        $uncompressed = [];
         foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
             if ($method->isStatic() || $method->getDeclaringClass()->getName() !== $class) {
                 continue;
             }
 
             foreach ($method->getAttributes(Region::class) as $attribute) {
-                $name = $attribute->newInstance()->name;
+                $region = $attribute->newInstance();
+                $name = $region->name;
 
                 if (isset($regions[$name])) {
                     throw new LogicException("Region [{$name}] is declared twice on [{$class}].");
                 }
 
                 $regions[$name] = $method->getName();
+
+                if (! $region->compress) {
+                    $uncompressed[] = $name;
+                }
             }
         }
 
@@ -144,7 +158,7 @@ final class ComponentMetadata
             }
         }
 
-        return new self($regions, $properties, $actions);
+        return new self($regions, $properties, $actions, $uncompressed);
     }
 
     /** Types an action parameter may declare. Everything else refuses the action. */

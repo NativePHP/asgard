@@ -43,7 +43,7 @@ it('sends retry and the current fragment of each region in SSE format', function
     // Each event is id, name and one data line, and the data is sealed: it
     // carries no plaintext fragment at all.
     expect($content)->toStartWith("retry: 3000\n\n")
-        ->and($content)->toMatch('/^retry: 3000\n\n(id: 0\nevent: fragment\ndata: \{"body":"[A-Za-z0-9_-]+","sig":"[A-Za-z0-9_-]{43}"\}\n\n){2}$/D')
+        ->and($content)->toMatch('/^retry: 3000\n\n(id: 0\nevent: fragment\ndata: \{"body":"[A-Za-z0-9_-]+","enc":"identity","sig":"[A-Za-z0-9_-]{43}"\}\n\n){2}$/D')
         ->and($content)->not->toContain('Hello, Simon');
 
     expect(sseBlocks($content)[1]['data'])->toBe(['protocol' => 1, 'region' => 'greeting', 'fragment' => GREETING])

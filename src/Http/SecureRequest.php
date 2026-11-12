@@ -13,6 +13,9 @@ final class SecureRequest
 {
     public const ATTRIBUTE = 'asgard.secure';
 
+    /** Set to true by a controller whose answer may be gzipped before it is encrypted. */
+    public const COMPRESS = 'asgard.compress';
+
     public function __construct(
         public readonly string $session,
         public readonly SessionKeys $keys,

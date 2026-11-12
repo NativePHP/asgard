@@ -185,6 +185,19 @@ Config, under `asgard.sessions`:
 | `store` | `null` (default cache store) | Cache store for sessions and nonces. Shared by every worker, so never `array`. `ASGARD_SESSION_STORE`. |
 | `lifetime` | `1800` | Seconds a session lives without a request. `ASGARD_SESSION_LIFETIME`. |
 
+Fragments of 1 KiB or more are gzipped before they are encrypted. A response
+says which with the signed `Asgard-Content-Coding: gzip` (or `identity`)
+header, and `Content-Encoding` stays `aes128gcm`, because Cloudflare rewrites
+a stacked `gzip, aes128gcm` and that breaks the signature. Errors are never
+compressed.
+Turn it off for a region whose fragment mixes a secret with text someone else
+can choose, because the compressed length can leak the secret (the BREACH
+attack):
+
+```php
+#[Region('account', compress: false)]
+```
+
 The crypto lives in `src/Security`, in small classes with no Laravel in them.
 `nativephp/midgard` carries an identical copy, and both test suites check
 `tests/Fixtures/asgard-interop.json` so the two cannot drift apart.
@@ -281,25 +294,25 @@ retry: 3000
 
 id: 0
 event: fragment
-data: {"body":"<base64url aes128gcm>","sig":"<base64url hmac>"}
+data: {"body":"<base64url aes128gcm>","enc":"gzip","sig":"<base64url hmac>"}
 
 id: 0
 event: fragment
-data: {"body":"…","sig":"…"}
+data: {"body":"…","enc":"identity","sig":"…"}
 
 : ping
 
 id: 1
 event: fragment
-data: {"body":"…","sig":"…"}
+data: {"body":"…","enc":"identity","sig":"…"}
 
 ```
 
-Each `body` decrypts with `enc_s` to
+Each `body` decrypts with `enc_s`, then gunzips when `enc` is `gzip`, to
 `{"protocol":1,"region":"stats","fragment":{...}}`. `sig` is HMAC-SHA256 with
 `sig_s` over `asgard/1 event`, the stream request's signature in base64, the
-event id, the event name and `body`, one per line. An event only verifies on
-the stream it was sent on.
+event id, the event name, `enc` and `body`, one per line. An event only
+verifies on the stream it was sent on.
 
 - One `fragment` event per region on connect, in the order asked for.
 - After that, a `fragment` event for each region a push touched.

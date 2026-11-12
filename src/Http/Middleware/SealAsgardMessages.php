@@ -76,7 +76,12 @@ class SealAsgardMessages
             return $response;
         }
 
-        $sealed = Wire::sealResponse($keys, $session, $response->getStatusCode(), (string) $response->getContent(), $opened['signature'], now()->getTimestamp());
+        // Only a fragment from a region that allows it is compressed. Errors
+        // never are: they are small and may echo what the client sent.
+        $sealed = Wire::sealResponse(
+            $keys, $session, $response->getStatusCode(), (string) $response->getContent(), $opened['signature'],
+            now()->getTimestamp(), null, $request->attributes->get(SecureRequest::COMPRESS) === true,
+        );
 
         $response->setContent($sealed['body']);
         foreach ($sealed['headers'] as $name => $value) {

@@ -13,6 +13,7 @@ use Native\Asgard\Tests\Fixtures\BadFragments;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\CounterScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
+use Native\Asgard\Tests\Fixtures\RowsScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -21,6 +22,9 @@ abstract class TestCase extends BaseTestCase
 
     /** @var array{id: string, keys: SessionKeys}|null */
     public ?array $asgardSession = null;
+
+    /** Bytes of the last sealed answer as it came off the wire, before opening. */
+    public ?int $wireLength = null;
 
     /**
      * The session and request signature of the last stream opened, so
@@ -45,6 +49,7 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.bad' => BadFragments::class,
             'app.native.screens.child' => ChildScreen::class,
             'app.native.screens.counter' => CounterScreen::class,
+            'app.native.screens.rows' => RowsScreen::class,
         ]);
     }
 
@@ -127,6 +132,7 @@ abstract class TestCase extends BaseTestCase
         }
 
         $base = $response->baseResponse;
+        $this->wireLength = strlen((string) $base->getContent());
         $base->setContent(Wire::openResponse(
             $session['keys'], $session['id'], $base->getStatusCode(),
             array_map(fn ($values) => implode(', ', $values), $base->headers->all()),

@@ -77,6 +77,9 @@ class RenderController
             return $this->invalidFragment($e, $class, $method);
         }
 
+        // An action's answer is the region's fragment, so it follows the region's choice.
+        $request->attributes->set(SecureRequest::COMPRESS, $metadata->compresses($payload['region']));
+
         return response()->json([
             'protocol' => self::PROTOCOL,
             'region' => $payload['region'],

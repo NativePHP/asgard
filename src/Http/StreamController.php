@@ -163,7 +163,7 @@ class StreamController
 
         $id = self::eventId($seen);
         foreach ($initial as $region => $fragment) {
-            $this->send($secure, $id, $region, $fragment);
+            $this->send($secure, $id, $region, $fragment, ComponentMetadata::for($class)->compresses($region));
         }
 
         while (! $this->clock->aborted()) {
@@ -206,7 +206,7 @@ class StreamController
                     continue;
                 }
 
-                $this->send($secure, $id, $region, $fragment);
+                $this->send($secure, $id, $region, $fragment, ComponentMetadata::for($class)->compresses($region));
             }
 
             $seen = $current;
@@ -229,12 +229,13 @@ class StreamController
     }
 
     /**
-     * One `fragment` event, encrypted with enc_s and signed with sig_s, bound
-     * to the request that opened this stream (§8.1).
+     * One `fragment` event, gzipped unless the region opted out, encrypted
+     * with enc_s and signed with sig_s, bound to the request that opened this
+     * stream (§8.1).
      *
      * @param  array<string, mixed>|list<array<string, mixed>>  $fragment
      */
-    protected function send(SecureRequest $secure, string $id, string $region, array $fragment): void
+    protected function send(SecureRequest $secure, string $id, string $region, array $fragment, bool $compress = true): void
     {
         $plaintext = json_encode(
             ['protocol' => self::PROTOCOL, 'region' => $region, 'fragment' => $fragment],
@@ -242,7 +243,7 @@ class StreamController
         );
 
         // The sealed data is JSON of base64url strings, so always a single line.
-        $data = Wire::sealEvent($secure->keys, $secure->session, $secure->signature, $id, 'fragment', $plaintext);
+        $data = Wire::sealEvent($secure->keys, $secure->session, $secure->signature, $id, 'fragment', $plaintext, null, $compress);
 
         $this->write("id: {$id}\nevent: fragment\ndata: {$data}\n\n");
     }
