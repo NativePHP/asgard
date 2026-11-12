@@ -107,6 +107,51 @@ versions of those, or left untyped. A class or interface type, `callable`,
 callable from the wire. Args are passed by position with no container
 injection and no model or enum binding.
 
+## Pushing fresh fragments (Server-Sent Events)
+
+A device can hold a stream open for the regions on screen. When something
+changes on the server, push the component and every open stream for it
+re-renders and sends the new fragments.
+
+```php
+Asgard::push('app.native.screens.home');            // every subscribed region
+Asgard::push(HomeScreen::class, 'stats');           // just the stats region
+```
+
+```sh
+php artisan asgard:push app.native.screens.home stats
+php artisan asgard:push 'App\Asgard\HomeScreen'
+```
+
+`push()` takes a registered address or a registered class (a class registered
+under several addresses is pushed to all of them). An unknown component, or a
+region that is not a `#[Region]` on it, throws `InvalidArgumentException`.
+
+A push only bumps a counter in a cache store. Each stream polls that store and
+re-renders the regions whose counters moved. Every re-render is a fresh
+component hydrated from the state the device sent when it connected, under the
+same rules as render. Nothing is personalised beyond that state, so the same
+"treat every region as public" rule applies.
+
+**Cost:** each open stream holds one PHP worker (an FPM child, an Octane
+worker…) for up to `asgard.stream.lifetime` seconds. A hundred devices on a
+streamed screen means a hundred busy workers. Size the pool for it, or route
+`{path}/stream` to its own pool. FPM's `request_terminate_timeout` must be
+longer than the lifetime, and the push store must be shared between the
+process that pushes and the workers holding streams (Redis, database, file on
+one box; never `array`).
+Because the endpoint is unauthenticated, anyone can open streams and tie up
+workers. Put a per-IP limit on it with `asgard.middleware` (`throttle:…`) or at
+the proxy.
+
+Config, under `asgard.stream`:
+
+| Key | Default | |
+| --- | --- | --- |
+| `store` | `null` (default cache store) | Cache store for push counters. `ASGARD_STREAM_STORE`. |
+| `lifetime` | `300` | Seconds before the server closes a stream. The client reconnects. `ASGARD_STREAM_LIFETIME`. |
+| `poll_ms` | `500` | How often each stream reads the push store. `ASGARD_STREAM_POLL_MS`. |
+
 ## Wire contract (v0)
 
 **Endpoint:** `{base}/_asgard/render`. The prefix is `asgard.path`. Two forms:
@@ -168,6 +213,57 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment. The message is included in debug. |
 
+### Stream
+
+**Endpoint:** `{base}/_asgard/stream`, in the same two forms as render
+(`QUERY`, or `POST` with `X-Asgard-Method: QUERY`).
+
+**Request body:** like render, but `regions` (1 to 16 distinct region names)
+instead of `region`, and no `action`:
+
+```json
+{"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon"},"platform":"ios"}
+```
+
+Everything is checked before the stream starts, and failures are the same JSON
+errors as render: 405, 422 (bad body, bad `regions`, an `action` key, state
+that doesn't fit), 404 `unknown_component` (unknown component, or any region
+it doesn't declare), 500 `invalid_fragment`.
+
+**Response 200:** `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
+`X-Accel-Buffering: no`. The body:
+
+```
+retry: 3000
+
+id: 0
+event: fragment
+data: {"protocol":1,"region":"greeting","fragment":{...}}
+
+id: 0
+event: fragment
+data: {"protocol":1,"region":"stats","fragment":{...}}
+
+: ping
+
+id: 1
+event: fragment
+data: {"protocol":1,"region":"stats","fragment":{...}}
+
+```
+
+- One `fragment` event per region on connect, in the order asked for.
+- After that, a `fragment` event for each region a push touched.
+- `: ping` every 15 seconds.
+- `id` is the sum of the push counters for this component and its subscribed
+  regions, so it only goes up while the store keeps its keys. It is
+  informational. A reconnect with `Last-Event-ID` still gets every region's
+  current fragment first.
+- The server closes the stream after `asgard.stream.lifetime` seconds or
+  when the client goes away. Reconnect after `retry`.
+- If a re-render throws or returns a bad fragment, it is reported and that
+  region is skipped. The device keeps its last fragment.
+
 ## Security rules
 
 - The wire `component` is only ever a key into the registry. It is never
@@ -193,6 +289,9 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
   `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are
   rejected. Props keys starting `_`, `native-` or `native:` are stripped.
   Unknown node fields are rejected.
+- The stream endpoint applies the same checks as render to every region it
+  is asked for, before any output. Re-renders use a fresh component hydrated
+  from the original state. Pushes come only from server code.
 
 ## Tests
 

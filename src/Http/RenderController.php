@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Support\ActionInvoker;
 use Native\Asgard\Support\Callback;
 use Native\Asgard\Support\ComponentMetadata;
@@ -16,7 +17,7 @@ use Native\Asgard\Support\Hydrator;
 
 class RenderController
 {
-    public const PROTOCOL = 1;
+    use ReadsAsgardRequests;
 
     public function __construct(
         protected ComponentRegistry $registry,
@@ -25,10 +26,8 @@ class RenderController
 
     public function __invoke(Request $request): JsonResponse
     {
-        if ($request->getMethod() === 'POST'
-            && strtoupper((string) $request->headers->get('X-Asgard-Method')) !== 'QUERY') {
-            return $this->error(405, 'method_not_allowed', 'POST requires the X-Asgard-Method: QUERY header.')
-                ->header('Allow', 'QUERY, POST');
+        if ($refused = $this->methodNotAllowed($request)) {
+            return $refused;
         }
 
         try {
@@ -73,11 +72,7 @@ class RenderController
         try {
             $fragment = FragmentValidator::validate($result);
         } catch (InvalidFragment $e) {
-            report($e);
-
-            return config('app.debug')
-                ? $this->error(500, 'invalid_fragment', $class.'::'.$method.'() returned an invalid fragment. '.$e->getMessage())
-                : response()->json(['error' => 'invalid_fragment'], 500);
+            return $this->invalidFragment($e, $class, $method);
         }
 
         return response()->json([
@@ -92,44 +87,11 @@ class RenderController
      */
     protected function payload(Request $request): array
     {
-        $header = $request->headers->get('Asgard-Protocol');
-        if ($header !== null && $header !== (string) self::PROTOCOL) {
-            throw new InvalidRequest('Unsupported Asgard-Protocol header.');
-        }
-
-        try {
-            $body = json_decode($request->getContent(), true, 64, JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            throw new InvalidRequest('Body must be valid JSON.');
-        }
-
-        if (! is_array($body) || array_is_list($body) && $body !== []) {
-            throw new InvalidRequest('Body must be a JSON object.');
-        }
-
-        if (($body['protocol'] ?? null) !== self::PROTOCOL) {
-            throw new InvalidRequest('protocol must be 1.');
-        }
-
-        $component = $body['component'] ?? null;
-        if (! is_string($component) || strlen($component) > 255 || ! preg_match(ComponentRegistry::ADDRESS_PATTERN, $component)) {
-            throw new InvalidRequest('component must be a dot-notation address.');
-        }
-
-        $region = $body['region'] ?? null;
-        if (! is_string($region) || ! preg_match('/^[A-Za-z0-9_.:-]{1,100}$/D', $region)) {
-            throw new InvalidRequest('region must be a region name.');
-        }
-
-        $state = $body['state'] ?? [];
-        if (! is_array($state) || ($state !== [] && array_is_list($state))) {
-            throw new InvalidRequest('state must be a JSON object.');
-        }
-
-        $platform = $body['platform'] ?? null;
-        if (! in_array($platform, ['ios', 'android'], true)) {
-            throw new InvalidRequest('platform must be ios or android.');
-        }
+        $body = $this->body($request);
+        $component = $body['component'];
+        $region = $this->regionName($body['region'] ?? null);
+        $state = $this->state($body['state'] ?? null);
+        $platform = $this->platform($body['platform'] ?? null);
 
         $action = array_key_exists('action', $body) ? $this->action($body['action']) : null;
 
@@ -161,10 +123,5 @@ class RenderController
         }
 
         return ['call' => $action['call'], 'args' => $action['args']];
-    }
-
-    protected function error(int $status, string $error, string $message): JsonResponse
-    {
-        return response()->json(['error' => $error, 'message' => $message], $status);
     }
 }

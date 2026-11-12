@@ -3,7 +3,7 @@
 return [
 
     /*
-    | Path prefix for the render endpoint. Requests go to {path}/render.
+    | Path prefix for the endpoints: {path}/render and {path}/stream.
     */
     'path' => env('ASGARD_PATH', '_asgard'),
 
@@ -25,6 +25,27 @@ return [
     */
     'components' => [
         // 'app.native.screens.home' => App\Asgard\HomeScreen::class,
+    ],
+
+    /*
+    | Server-Sent Events at {path}/stream.
+    |
+    | Each open stream holds one PHP worker (an FPM child, say) for up to
+    | `lifetime` seconds. Size your pool for the number of devices you expect
+    | to keep a screen open, or send streams to their own pool. FPM's
+    | request_terminate_timeout must be longer than `lifetime`.
+    |
+    | store:    cache store for push versions. Must be shared by the process
+    |           that calls Asgard::push() and the workers holding streams, so
+    |           not `array`. null means the default cache store.
+    | lifetime: seconds before the server closes a stream. The client
+    |           reconnects and gets fresh fragments.
+    | poll_ms:  how often each stream reads the push store.
+    */
+    'stream' => [
+        'store' => env('ASGARD_STREAM_STORE'),
+        'lifetime' => (int) env('ASGARD_STREAM_LIFETIME', 300),
+        'poll_ms' => (int) env('ASGARD_STREAM_POLL_MS', 500),
     ],
 
 ];
