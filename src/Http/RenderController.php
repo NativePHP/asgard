@@ -90,7 +90,7 @@ class RenderController
         // A screen's chrome travels as its own part, checked on its own.
         if ($component instanceof ServerScreen) {
             try {
-                $answer['chrome'] = (object) ChromeValidator::validate($component->chrome());
+                $answer['chrome'] = (object) ChromeValidator::validate($this->views->chrome($component->chrome(), $component));
             } catch (InvalidFragment $e) {
                 return $this->invalidFragment($e, $class, 'chrome');
             }

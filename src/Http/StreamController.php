@@ -141,12 +141,14 @@ class StreamController
 
         Hydrator::hydrate($component, $state);
 
+        $views = $this->container->make(RegionViews::class);
+
         $answer = ['fragment' => FragmentValidator::validate(
-            $this->container->make(RegionViews::class)->resolve($this->container->call([$component, $method]), $component),
+            $views->resolve($this->container->call([$component, $method]), $component),
         )];
 
         if ($component instanceof ServerScreen) {
-            $answer['chrome'] = (object) ChromeValidator::validate($component->chrome());
+            $answer['chrome'] = (object) ChromeValidator::validate($views->chrome($component->chrome(), $component));
         }
 
         return $answer;

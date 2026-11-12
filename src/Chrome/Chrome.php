@@ -2,7 +2,9 @@
 
 namespace Native\Asgard\Chrome;
 
+use Illuminate\Contracts\View\View;
 use JsonSerializable;
+use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Node;
 
 /**
@@ -26,11 +28,11 @@ class Chrome implements JsonSerializable
 
     protected ?TabBar $tabBar = null;
 
-    /** @var Node|array<mixed>|null */
-    protected Node|array|null $bottomBar = null;
+    /** @var Node|View|array<mixed>|null */
+    protected Node|View|array|null $bottomBar = null;
 
-    /** @var Node|array<mixed>|null */
-    protected Node|array|null $tabAccessory = null;
+    /** @var Node|View|array<mixed>|null */
+    protected Node|View|array|null $tabAccessory = null;
 
     public static function make(): static
     {
@@ -70,18 +72,42 @@ class Chrome implements JsonSerializable
         return $this;
     }
 
-    /** Content pinned to the bottom above the keyboard, like NativeLayout::bottomBar(). Native chrome only. */
-    public function bottomBar(Node|array|null $content): static
+    /**
+     * Content pinned to the bottom above the keyboard, like
+     * NativeLayout::bottomBar(). Native chrome only. A Blade view is
+     * rendered the way the screen's body is.
+     */
+    public function bottomBar(Node|View|array|null $content): static
     {
         $this->bottomBar = $content;
 
         return $this;
     }
 
-    /** Content pinned above the tab bar, like NativeLayout::tabBarAccessory(). Native chrome only. */
-    public function tabAccessory(Node|array|null $content): static
+    /** Content pinned above the tab bar, like NativeLayout::tabBarAccessory(). Native chrome only. A Blade view works too. */
+    public function tabAccessory(Node|View|array|null $content): static
     {
         $this->tabAccessory = $content;
+
+        return $this;
+    }
+
+    /**
+     * Swap Blade views in the content slots for what $render builds from
+     * them. The controllers do this with RegionViews before validating.
+     *
+     * @internal
+     *
+     * @param  \Closure(View): (Node|array<mixed>)  $render
+     */
+    public function renderViews(\Closure $render): static
+    {
+        if ($this->bottomBar instanceof View) {
+            $this->bottomBar = $render($this->bottomBar);
+        }
+        if ($this->tabAccessory instanceof View) {
+            $this->tabAccessory = $render($this->tabAccessory);
+        }
 
         return $this;
     }
@@ -118,8 +144,12 @@ class Chrome implements JsonSerializable
      *
      * @internal
      */
-    public static function content(Node|array $content): array
+    public static function content(Node|View|array $content): array
     {
+        if ($content instanceof View) {
+            throw new InvalidFragment('A chrome view must be rendered before it is serialized. Return the Chrome from chrome() and let asgard render it.');
+        }
+
         if ($content instanceof Node) {
             return $content->toArray();
         }

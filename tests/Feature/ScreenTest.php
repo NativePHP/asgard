@@ -1,5 +1,6 @@
 <?php
 
+use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\Chrome\Chrome;
 use Native\Asgard\Chrome\NavAction;
 use Native\Asgard\Chrome\NavBar;
@@ -160,6 +161,8 @@ it('lists routes in registration order', function () {
         ['uri' => '/promos/{id}', 'screen' => 'promos.show'],
         ['uri' => '/', 'screen' => 'native.asgard.tests.fixtures.bare_screen'],
         ['uri' => '/bad-chrome', 'screen' => 'native.asgard.tests.fixtures.bad_chrome_screen'],
+        ['uri' => '/blade-promos/{id}', 'screen' => 'blade_promos.show'],
+        ['uri' => '/top-bar-view/{where}', 'screen' => 'native.asgard.tests.fixtures.top_bar_view_screen'],
     ]);
 });
 
@@ -301,3 +304,81 @@ it('refuses bad chrome', function (array $chrome) {
     'bad label visibility' => [['tab_bar' => ['label_visibility' => 'sometimes']]],
     'a list instead of an object' => [[['nav_bar' => []]]],
 ]);
+
+// ── Blade screens ───────────────────────────────────
+
+it('renders a screen body and chrome views from Blade', function () {
+    $response = $this->asgard(screenBody(['component' => 'blade_promos.show', 'state' => ['id' => '42']]))->assertOk();
+
+    expect($response->json('fragment'))->toBe([
+        'type' => 'column',
+        'class' => 'p-4',
+        'children' => [
+            ['type' => 'text', 'key' => 'title', 'props' => ['text' => 'Promo 42']],
+            ['type' => 'text', 'props' => ['text' => 'Likes 0']],
+            ['type' => 'button', 'props' => ['label' => 'More'], 'on_press' => ['navigate' => '/blade-promos/43', 'transition' => 'fade']],
+            ['type' => 'button', 'props' => ['label' => 'Close'], 'on_press' => ['back' => true]],
+            ['type' => 'button', 'props' => ['label' => 'Like'], 'on_press' => ['call' => 'like', 'args' => []]],
+        ],
+    ]);
+
+    expect($response->json('chrome'))->toBe([
+        'native' => true,
+        'nav_bar' => ['title' => 'Promo #42'],
+        'bottom_bar' => [
+            'type' => 'row',
+            'class' => 'p-2',
+            'children' => [['type' => 'button', 'props' => ['label' => 'Home'], 'on_press' => ['navigate' => '/', 'replace' => true]]],
+        ],
+        'tab_accessory' => ['type' => 'button', 'props' => ['label' => 'Promo 42'], 'on_press' => ['call' => 'bump', 'args' => []]],
+    ]);
+});
+
+it('runs an action on a Blade screen', function () {
+    $this->asgard(screenBody([
+        'component' => 'blade_promos.show', 'state' => ['id' => '1', 'likes' => 4], 'action' => ['call' => 'like', 'args' => []],
+    ]))
+        ->assertOk()
+        ->assertJsonPath('fragment.children.1.props.text', 'Likes 5');
+});
+
+it('streams a Blade screen with its chrome', function () {
+    config()->set('asgard.stream.lifetime', 1);
+    $this->app->instance(StreamClock::class, new FakeClock);
+
+    $content = $this->asgardStream([
+        'protocol' => 1, 'component' => 'blade_promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'], 'platform' => 'ios',
+    ])->assertOk()->streamedContent();
+
+    $event = array_values(array_filter(sseBlocks($content), 'is_array'))[0]['data'];
+
+    expect($event['fragment']['children'][0]['props']['text'])->toBe('Promo 3')
+        ->and($event['chrome']['bottom_bar']['children'][0]['on_press'])->toBe(['navigate' => '/', 'replace' => true]);
+});
+
+it('refuses chrome tags in a screen view, body or chrome', function (string $where) {
+    $this->asgard(screenBody(['component' => 'native.asgard.tests.fixtures.top_bar_view_screen', 'state' => ['where' => $where]]))
+        ->assertStatus(500)
+        ->assertJsonPath('error', 'invalid_fragment')
+        ->assertSee('element type [top_bar] is not allowed');
+})->with(['body', 'bar']);
+
+it('lets a screen body view through when only the chrome is plain', function () {
+    $this->asgard(screenBody(['component' => 'native.asgard.tests.fixtures.top_bar_view_screen', 'state' => ['where' => 'ok']]))
+        ->assertOk()
+        ->assertJsonPath('chrome.bottom_bar.type', 'row');
+});
+
+it('renders chrome views given in the array form too', function () {
+    $chrome = app(RegionViews::class)->chrome(
+        ['bottom_bar' => view('screens.promo-bar')],
+        new BareScreen,
+    );
+
+    expect(ChromeValidator::validate($chrome)['bottom_bar']['type'])->toBe('row');
+});
+
+it('refuses to serialize a chrome view nobody rendered', function () {
+    expect(fn () => Chrome::make()->bottomBar(view('screens.promo-bar'))->toArray())
+        ->toThrow(InvalidFragment::class, 'must be rendered');
+});

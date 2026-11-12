@@ -5,6 +5,7 @@ namespace Native\Asgard\Blade;
 use Illuminate\Contracts\View\View as ViewContract;
 use Illuminate\View\View;
 use Illuminate\View\ViewException;
+use Native\Asgard\Chrome\Chrome;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
@@ -32,6 +33,31 @@ class RegionViews
     public function resolve(mixed $result, ServerComponent $component): mixed
     {
         return $result instanceof ViewContract ? $this->render($result, $component) : $result;
+    }
+
+    /**
+     * A screen's chrome, with any Blade view in bottom_bar or
+     * tab_accessory rendered like the body. Works on a Chrome and on the
+     * array form. Everything else is returned as it is, for
+     * ChromeValidator to judge.
+     */
+    public function chrome(mixed $chrome, ServerComponent $component): mixed
+    {
+        $render = fn (ViewContract $view) => $this->render($view, $component);
+
+        if ($chrome instanceof Chrome) {
+            return $chrome->renderViews($render);
+        }
+
+        if (is_array($chrome)) {
+            foreach (['bottom_bar', 'tab_accessory'] as $slot) {
+                if (($chrome[$slot] ?? null) instanceof ViewContract) {
+                    $chrome[$slot] = $render($chrome[$slot]);
+                }
+            }
+        }
+
+        return $chrome;
     }
 
     /** @return Node|list<Node> */

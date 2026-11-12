@@ -129,8 +129,10 @@ the same checks, so chrome like `<top-bar>` is still refused.
   whole `{{ $value }}`, which is passed as a value: `select({{ $id }}, 'x')`
   sends `$id` as an int if it is one. Nothing else is allowed, and nothing
   is evaluated from a string. `{{ }}` inside a quoted string is refused.
-- `native:model`, `@model`, `native:poll` and `@navigate` are refused. A
-  region has no client props to sync and re-renders by push.
+- `@navigate="/promos/{{ $id }}"` moves the app to a route the device
+  knows. See [Navigation](#navigation).
+- `native:model`, `@model` and `native:poll` are refused. A region has no
+  client props to sync and re-renders by push.
 - Several root tags make a list fragment. `@include`, `@if`, `@foreach` and
   the app's custom directives work.
 
@@ -170,6 +172,149 @@ versions of those, or left untyped. A class or interface type, `callable`,
 `object`, `iterable`, `self` or a by-reference param means the method is never
 callable from the wire. Args are passed by position with no container
 injection and no model or enum binding.
+
+## Server screens
+
+A region lives inside a screen the app wrote. A server screen is a whole
+screen the server owns, at a route of its own:
+
+```php
+use Native\Asgard\Attributes\Action;
+use Native\Asgard\Attributes\Screen;
+use Native\Asgard\Chrome\Chrome;
+use Native\Asgard\Chrome\NavAction;
+use Native\Asgard\Chrome\NavBar;
+use Native\Asgard\Node;
+use Native\Asgard\ServerScreen;
+
+#[Screen('/promos/{id}')]
+class PromoScreen extends ServerScreen
+{
+    public int $id;           // filled from the route parameter
+
+    public int $likes = 0;
+
+    public function render(): Node
+    {
+        return Node::column(
+            Node::text("Promo {$this->id}"),
+            Node::button('Next')->onPressNavigate('/promos/'.($this->id + 1), transition: 'fade'),
+        );
+    }
+
+    public function chrome(): Chrome
+    {
+        return Chrome::make()
+            ->native()
+            ->navBar(NavBar::make()->title("Promo #{$this->id}")->back()
+                ->action(NavAction::make('like')->icon('heart')->onPress('like')));
+    }
+
+    #[Action]
+    public function like(): void
+    {
+        $this->likes++;
+    }
+}
+```
+
+Register it in `config/asgard.php` under `screens`, or with
+`Asgard::screen(PromoScreen::class)` at boot. The device fetches the route
+list from `{path}/routes` (sealed like render) and opens a matching URI in a
+generic screen. An app route always wins over a server route with the same
+shape: a server screen can add a route, never replace one.
+
+- The URI uses Laravel's spelling: literal segments and `{name}`
+  parameters, with an optional `{name?}` last.
+- `#[Screen('/uri', name: 'promos.show')]` sets the wire address. It
+  defaults to the class name in dot notation.
+- Route parameters and the query string arrive as state. Public typed
+  properties named after them are filled in, and numeric and boolean
+  strings are converted to the property's type.
+- The body travels as region `screen`. `render()` returns what a region
+  method can: a `Node`, a list, node arrays, or a Blade view.
+- `#[Action]` methods and `Asgard::push()` work as on any component.
+  `#[Region]` methods do not: a screen has one body.
+
+### Chrome
+
+`chrome()` returns a `Chrome`, the array form of it, or null for none. It
+travels as its own part of the answer and is checked on its own. Chrome is
+never accepted inside the body, so `Node::make('top_bar')` or a `<top-bar>`
+tag in a screen view is refused.
+
+- `->native()` draws the bars with the platform's own navigation.
+  `->font('Inter')` sets a font for both bars.
+- `->navBar(NavBar::make()...)`: `title`, `subtitle`, `back`, `logo`,
+  `titleView`, colours, `displayMode`, `scrollBehavior`, `searchBar`, and
+  `action(NavAction::make('id')...)` buttons with an icon or label, and
+  `items([...])` for a menu.
+- `->tabBar(TabBar::make()->add(Tab::link('Home', '/', icon: 'home')))`, or
+  `->hidden()` to hide the app's tab bar on this screen.
+- `->bottomBar($content)` and `->tabAccessory($content)` take a fragment:
+  a `Node`, a list, or a Blade view, rendered like the body.
+
+Chrome buttons take the same callbacks as nodes: `onPress`,
+`onPressClient`, `onPressNavigate` and `onPressBack`.
+
+### Navigation
+
+A press can move the app instead of calling a method:
+
+```php
+Node::button('Next')->onPressNavigate('/promos/43');
+Node::button('Home')->onPressNavigate('/', replace: true, transition: 'fade');
+Node::button('Close')->onPressBack();
+```
+
+`onLongPressNavigate` and `onDoubleTapNavigate` exist too. A change or a
+submit never navigates. The path must be an app path: one leading `/`, no
+scheme, no host, no whitespace. Web URLs throw `InvalidFragment`. Whether a
+route matches is up to the device, which checks its own routes and then
+the server's before it goes. Transitions are `slide_from_right`,
+`slide_from_left`, `slide_from_bottom`, `fade`, `fade_from_bottom`,
+`scale_from_center`, `parallax_push`, `morph` and `none`.
+
+In Blade, `@navigate` does the same on `on_press`:
+
+```blade
+<button @navigate="/promos/{{ $next }}">Next</button>
+<button @navigate.replace.fade="/">Home</button>
+<button @navigate.back>Close</button>
+```
+
+- The value is a path with `{{ }}` interpolated into it, so it is always a
+  string. It is not a PHP expression, and the device's
+  `@navigate('/x', [...])` form, with data, is refused.
+- Modifiers: `replace`, `back`, and one transition in the device's
+  camelCase spelling (`fade`, `slideFromRight`, `slideFromLeft`,
+  `slideFromBottom`, `fadeFromBottom`, `scaleFromCenter`, `parallaxPush`,
+  `morph`, `none`). `exitToWeb` and any other modifier fail the compile.
+- `@navigate` and `@press` (or `@tap`) on one element fail the compile. On
+  the device `@navigate` silently wins; here a press does one thing. Call
+  an action that navigates if you need both.
+
+### Blade screens
+
+`render()` can return a view, and so can the chrome's content slots:
+
+```php
+public function render(): View
+{
+    return view('screens.promo');   // $this and public properties are available
+}
+
+public function chrome(): Chrome
+{
+    return Chrome::make()->native()
+        ->navBar(NavBar::make()->title("Promo #{$this->id}")->back())
+        ->bottomBar(view('screens.promo-bar'));
+}
+```
+
+Both compile like region views. The server never sends Blade to the
+device. It compiles the view into the same fragment JSON a `Node` tree
+would make.
 
 ## Pushing fresh fragments (Server-Sent Events)
 

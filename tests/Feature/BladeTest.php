@@ -236,8 +236,65 @@ it('refuses directives that only make sense on the device', function (string $at
     ['native:model="name"', 'native:model'],
     ['@model="name"', '@model'],
     ['native:poll.2s', 'native:poll'],
-    ['@navigate="/home"', '@navigate'],
 ]);
+
+// ── @navigate ───────────────────────────────────────
+
+it('compiles @navigate to the on_press navigation slot', function () {
+    $fragment = region(<<<'BLADE'
+        <column>
+            <button @navigate="/promos/{{ $next }}">Next</button>
+            <button @navigate.replace='/home'>Home</button>
+            <pressable @navigate.slideFromBottom.replace="/sheets/{{ $next }}/edit?tab={{ $tab }}" />
+            <button @navigate.back>Back</button>
+            <button @navigate.back.fade>Fade back</button>
+            <pressable @navigate="{{ $path }}" @longPress="peek" />
+        </column>
+        BLADE, ['next' => 7, 'tab' => 'b', 'path' => '/from/var']);
+
+    expect(array_column($fragment['children'], 'on_press'))->toBe([
+        ['navigate' => '/promos/7'],
+        ['navigate' => '/home', 'replace' => true],
+        ['navigate' => '/sheets/7/edit?tab=b', 'replace' => true, 'transition' => 'slide_from_bottom'],
+        ['back' => true],
+        ['back' => true, 'transition' => 'fade'],
+        ['navigate' => '/from/var'],
+    ])->and($fragment['children'][5]['on_long_press'])->toBe(['call' => 'peek', 'args' => []]);
+});
+
+it('still checks the interpolated path is an app path', function (mixed $path, string $message) {
+    expect(fn () => region('<button @navigate="{{ $path }}">Go</button>', ['path' => $path]))
+        ->toThrow(InvalidFragment::class, $message);
+})->with([
+    'a web URL' => ['https://evil.test/x', 'must be an app path'],
+    'protocol relative' => ['//evil.test/x', 'must be an app path'],
+    'not a string' => [42, 'must be a string, got int'],
+]);
+
+it('refuses @navigate forms and modifiers a server view cannot use', function (string $attr, string $message) {
+    expect(fn () => region("<column><button {$attr}>Go</button></column>"))
+        ->toThrow(InvalidFragment::class, $message);
+})->with([
+    'exitToWeb' => ['@navigate.exitToWeb="/web"', 'cannot leave the native app'],
+    'an unknown modifier' => ['@navigate.sideways="/x"', 'unknown modifier [sideways]'],
+    'two transitions' => ['@navigate.fade.morph="/x"', 'at most one transition'],
+    'back with a path' => ['@navigate.back="/x"', '.back takes no path'],
+    'back and replace' => ['@navigate.back.replace', 'cannot be combined'],
+    'no path' => ['@navigate', 'expected a path'],
+    'a PHP expression' => ['@navigate="\'/x\', [\'a\' => 1]"', 'not a PHP expression'],
+    'the paren form' => ["@navigate('/x')", '@navigate(...) is not supported'],
+    'a relative path' => ['@navigate="promos/1"', 'not a PHP expression'],
+]);
+
+it('refuses @navigate and @press on one element', function (string $press) {
+    expect(fn () => region("<button @navigate=\"/x\" {$press}>Go</button>"))
+        ->toThrow(InvalidFragment::class, 'has both @navigate and @press');
+})->with(['@press="save"', '@press.client="save"', '@tap="save"']);
+
+it('leaves @navigated alone as an event with no slot', function () {
+    expect(fn () => region('<pager @navigated="seen" />'))
+        ->toThrow(InvalidFragment::class, '@navigated has no fragment callback slot');
+});
 
 it('refuses unknown hyphenated bare tags in debug', function () {
     expect(fn () => region('<column><fancy-widget /></column>'))

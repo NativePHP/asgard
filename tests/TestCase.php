@@ -11,13 +11,15 @@ use Native\Asgard\Security\Wire;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Tests\Fixtures\BadChromeScreen;
 use Native\Asgard\Tests\Fixtures\BadFragments;
-use Native\Asgard\Tests\Fixtures\BladeScreen;
 use Native\Asgard\Tests\Fixtures\BareScreen;
+use Native\Asgard\Tests\Fixtures\BladePromoScreen;
+use Native\Asgard\Tests\Fixtures\BladeScreen;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\CounterScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
 use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RowsScreen;
+use Native\Asgard\Tests\Fixtures\TopBarViewScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -58,7 +60,7 @@ abstract class TestCase extends BaseTestCase
         ]);
         $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
         $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
-        $app['config']->set('asgard.screens', [PromoScreen::class, BareScreen::class, BadChromeScreen::class]);
+        $app['config']->set('asgard.screens', [PromoScreen::class, BareScreen::class, BadChromeScreen::class, BladePromoScreen::class, TopBarViewScreen::class]);
     }
 
     protected function tearDown(): void

@@ -14,10 +14,13 @@ use Native\Asgard\Exceptions\InvalidFragment;
  * Differences from the original:
  *
  * - Calls go to \Native\Asgard\Blade\NodeCollector.
- * - `native:model`, `@model`, `native:poll` and `@navigate` are refused at
- *   compile time. A fragment has no client props to sync, re-renders by
- *   push rather than polling, and navigation is not a fragment callback
- *   yet. TODO: compile `@navigate` once the protocol has a navigate slot.
+ * - `native:model`, `@model` and `native:poll` are refused at compile
+ *   time. A fragment has no client props to sync and re-renders by push
+ *   rather than polling.
+ * - `@navigate` compiles to the on_press navigation slot. Its value is an
+ *   app path written as a string (`@navigate="/promos/{{ $id }}"`), not a
+ *   PHP expression, and it takes the modifiers that slot can say. See
+ *   compileNavigate().
  * - Event attributes take a `.client` modifier (`@press.client="x"`), and
  *   the five fragment callbacks compile to a structured {call, args} array
  *   instead of an expression string. See compileCallback().
@@ -44,6 +47,19 @@ class NativeTagPrecompiler
      */
     private const RAW_SLOT_ELEMENTS = [
         'webview' => 'html',
+    ];
+
+    /** camelCase modifier → Transition enum value, as on the device. */
+    private const NAVIGATE_TRANSITIONS = [
+        'fade' => 'fade',
+        'slideFromRight' => 'slide_from_right',
+        'slideFromLeft' => 'slide_from_left',
+        'slideFromBottom' => 'slide_from_bottom',
+        'fadeFromBottom' => 'fade_from_bottom',
+        'scaleFromCenter' => 'scale_from_center',
+        'parallaxPush' => 'parallax_push',
+        'morph' => 'morph',
+        'none' => 'none',
     ];
 
     /**
@@ -264,14 +280,13 @@ class NativeTagPrecompiler
         $value = '<?php '.self::COMPILED_MARKER.' ?>'.$value;
 
         // Directives that mean something only to an on-device screen. A
-        // fragment has no client props to sync and re-renders by push, and
-        // navigation is not a fragment callback yet. Fail the compile with
-        // a clear message rather than letting them fall through as props.
+        // fragment has no client props to sync and re-renders by push. Fail
+        // the compile with a clear message rather than letting them fall
+        // through as props.
         foreach ([
             '/native:model\b/' => 'native:model',
             '/@model=/' => '@model',
             '/native:poll\b/' => 'native:poll',
-            '/@navigate\b/' => '@navigate',
         ] as $pattern => $name) {
             if (preg_match($pattern, $value)) {
                 throw new InvalidFragment("{$name} is not supported in a server region view.".$this->inView());
@@ -282,6 +297,24 @@ class NativeTagPrecompiler
         // (which rejects ':' in names) preserves it. The collector turns it
         // (or a plain `key`) into the node's key.
         $value = str_replace('native:key=', 'native-key=', $value);
+
+        // `@navigate.mod.mod="/path"` → `_navigate-mod-mod="/path"`, and a
+        // bare `@navigate.back` → `_navigate-back`. The attribute parser
+        // rejects '.', so the modifiers travel in the name, and the value
+        // keeps its own quotes. compileAttributes() hands both to
+        // compileNavigate(). The paren form the device also accepts
+        // (`@navigate('/x', [...])`) carries data the slot has no room for.
+        $value = preg_replace_callback(
+            '/(?<=\s)@navigate\b((?:\.[A-Za-z0-9_]+)*)(\s*\()?/',
+            function ($m) {
+                if (($m[2] ?? '') !== '') {
+                    throw new InvalidFragment('@navigate(...) is not supported in a server region view. Write @navigate="/path" instead.'.$this->inView());
+                }
+
+                return '_navigate'.str_replace('.', '-', $m[1]);
+            },
+            $value
+        );
 
         // Tap spellings are aliases of the press family — `@tap` is the
         // mobile-native way to say `@tap`, and both are supported for
@@ -593,7 +626,7 @@ class NativeTagPrecompiler
 
             // Static attribute name="value"
             if (preg_match('/^([a-zA-Z0-9_\-]+)\s*=\s*"([^"]*)"/s', $remaining, $m)) {
-                $parts[] = "'".addslashes($m[1])."' => ".($this->isCallbackAttribute($m[1]) ? $this->compileCallback($m[1], $m[2]) : $this->compileAttributeValue($m[2]));
+                $parts[] = $this->compileStatic($m[1], $m[2]);
                 $remaining = substr($remaining, strlen($m[0]));
 
                 continue;
@@ -601,7 +634,7 @@ class NativeTagPrecompiler
 
             // Static attribute name='value'
             if (preg_match("/^([a-zA-Z0-9_\\-]+)\\s*=\\s*'([^']*)'/s", $remaining, $m)) {
-                $parts[] = "'".addslashes($m[1])."' => ".($this->isCallbackAttribute($m[1]) ? $this->compileCallback($m[1], $m[2]) : $this->compileAttributeValue($m[2]));
+                $parts[] = $this->compileStatic($m[1], $m[2]);
                 $remaining = substr($remaining, strlen($m[0]));
 
                 continue;
@@ -609,7 +642,7 @@ class NativeTagPrecompiler
 
             // Boolean attribute (standalone word)
             if (preg_match('/^([a-zA-Z0-9_\-]+)/', $remaining, $m)) {
-                $parts[] = "'".$m[1]."' => true";
+                $parts[] = $this->isNavigateAttribute($m[1]) ? $this->compileNavigate($m[1], null) : "'".$m[1]."' => true";
                 $remaining = substr($remaining, strlen($m[0]));
 
                 continue;
@@ -620,6 +653,92 @@ class NativeTagPrecompiler
         }
 
         return '['.implode(', ', $parts).']';
+    }
+
+    private function compileStatic(string $name, string $value): string
+    {
+        if ($this->isNavigateAttribute($name)) {
+            return $this->compileNavigate($name, $value);
+        }
+
+        return "'".addslashes($name)."' => ".($this->isCallbackAttribute($name) ? $this->compileCallback($name, $value) : $this->compileAttributeValue($value));
+    }
+
+    private function isNavigateAttribute(string $name): bool
+    {
+        return $name === '_navigate' || str_starts_with($name, '_navigate-');
+    }
+
+    /**
+     * Compile `@navigate` into an on_press navigation slot:
+     *
+     *     @navigate="/promos/{{ $id }}"            {navigate: "/promos/7"}
+     *
+     *     @navigate.replace.fade="/home"           {navigate: "/home", replace: true, transition: "fade"}
+     *
+     *     @navigate.back                           {back: true}
+     *
+     *     @navigate.back.slideFromLeft             {back: true, transition: "slide_from_left"}
+     *
+     * The value is a path, not a PHP expression: text with `{{ }}`
+     * interpolated into it, so it is always a string. Whether it is an app
+     * path is checked when the node is built and again by FragmentValidator.
+     * Modifiers are the device's: `replace`, `back` and the camelCase
+     * transitions. `exitToWeb` leaves the native app, which a server screen
+     * may not ask for, and anything else is a typo. Both fail the compile.
+     */
+    private function compileNavigate(string $name, ?string $value): string
+    {
+        $modifiers = array_values(array_filter(explode('-', substr($name, strlen('_navigate')))));
+        $fail = fn (string $why) => new InvalidFragment('@navigate'.($modifiers ? '.'.implode('.', $modifiers) : '').": {$why}".$this->inView());
+
+        $back = $replace = false;
+        $transition = null;
+
+        foreach ($modifiers as $modifier) {
+            match (true) {
+                $modifier === 'back' => $back = true,
+                $modifier === 'replace' => $replace = true,
+                isset(self::NAVIGATE_TRANSITIONS[$modifier]) => $transition === null
+                    ? $transition = self::NAVIGATE_TRANSITIONS[$modifier]
+                    : throw $fail('give at most one transition.'),
+                $modifier === 'exitToWeb' => throw $fail('a server view cannot leave the native app. Navigate to an app path instead.'),
+                default => throw $fail("unknown modifier [{$modifier}]. Use replace, back or a transition (".implode(', ', array_keys(self::NAVIGATE_TRANSITIONS)).').'),
+            };
+        }
+
+        $slot = [];
+
+        if ($back) {
+            if ($replace) {
+                throw $fail('.back and .replace cannot be combined.');
+            }
+            if ($value !== null && trim($value) !== '') {
+                throw $fail('.back takes no path.');
+            }
+            $slot[] = "'back' => true";
+        } else {
+            $value = trim((string) $value);
+
+            if ($value === '') {
+                throw $fail('expected a path, like @navigate="/promos/{{ $id }}".');
+            }
+            if (! str_starts_with($value, '/') && ! str_starts_with($value, '{{') && ! str_starts_with($value, '{!!')) {
+                throw $fail('the value is a path like /promos/{{ $id }}, not a PHP expression.');
+            }
+
+            $slot[] = "'navigate' => ".$this->compileAttributeValue($value);
+
+            if ($replace) {
+                $slot[] = "'replace' => true";
+            }
+        }
+
+        if ($transition !== null) {
+            $slot[] = "'transition' => '{$transition}'";
+        }
+
+        return "'_navigate' => [".implode(', ', $slot).']';
     }
 
     private function isCallbackAttribute(string $name): bool

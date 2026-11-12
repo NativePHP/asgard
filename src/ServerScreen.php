@@ -2,6 +2,7 @@
 
 namespace Native\Asgard;
 
+use Illuminate\Contracts\View\View;
 use Native\Asgard\Chrome\Chrome;
 
 /**
@@ -38,9 +39,12 @@ abstract class ServerScreen extends ServerComponent
     public const REGION = 'screen';
 
     /**
-     * The screen's body: a Node, a node array, or a list of them.
+     * The screen's body: a Node, a node array, a list of them, or a Blade
+     * view (`return view('screens.promo')`), which is compiled on the
+     * server like a region view. Chrome tags such as `<top-bar>` are
+     * refused in the body; chrome comes from chrome() only.
      *
-     * @return Node|array<mixed>
+     * @return Node|array<mixed>|View
      */
     abstract public function render(): mixed;
 

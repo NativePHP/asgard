@@ -22,6 +22,11 @@ use Native\Asgard\Node;
  * - `@press="m(1)"` becomes on_press {call: m, args: [1]}, a server action.
  *   `@press.client="m"` adds target client. Same for longPress, doubleTap,
  *   change and submit (and the tap/longTap spellings).
+ * - `@navigate="/path"` becomes on_press {navigate: "/path"}, and
+ *   `@navigate.back` becomes on_press {back: true}. A press can do one
+ *   thing, so an element with both `@navigate` and `@press` (or `@tap`)
+ *   is refused. The device lets `@navigate` win silently; here that would
+ *   drop a handler without a word.
  * - Every other attribute is a prop, under the name it was written with,
  *   because that is the attribute bag the device's collector reads.
  *
@@ -200,6 +205,12 @@ final class NodeCollector
         $node = Node::make($type);
         $props = [];
 
+        if (array_key_exists('_navigate', $attrs)) {
+            if (array_key_exists('_press', $attrs) || array_key_exists('_press-client', $attrs)) {
+                throw new InvalidFragment("<{$type}> has both @navigate and @press. A press does one thing: navigate, or call a method that navigates.");
+            }
+        }
+
         foreach ($attrs as $name => $value) {
             $name = (string) $name;
 
@@ -216,6 +227,12 @@ final class NodeCollector
                 if ($value !== null && $value !== '') {
                     $node->key(is_int($value) ? $value : (string) $value);
                 }
+
+                continue;
+            }
+
+            if ($name === '_navigate') {
+                self::navigate($node, $value);
 
                 continue;
             }
@@ -251,6 +268,27 @@ final class NodeCollector
         }
 
         $node->{$method.($client ? 'Client' : '')}($value['call'], ...array_values($value['args']));
+    }
+
+    /** @param  array{navigate?: mixed, replace?: true, back?: true, transition?: string}  $slot  from the precompiler */
+    private static function navigate(Node $node, mixed $slot): void
+    {
+        if (! is_array($slot)) {
+            throw new InvalidFragment('_navigate: expected a compiled navigation.');
+        }
+
+        if (isset($slot['back'])) {
+            $node->onPressBack($slot['transition'] ?? null);
+
+            return;
+        }
+
+        $uri = $slot['navigate'] ?? null;
+        if (! is_string($uri)) {
+            throw new InvalidFragment('@navigate: the path must be a string, got '.get_debug_type($uri).'.');
+        }
+
+        $node->onPressNavigate($uri, $slot['replace'] ?? false, $slot['transition'] ?? null);
     }
 
     /** Apply the whitespace policy to attribute text (`:text="..."`). */
