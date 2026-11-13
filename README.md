@@ -237,9 +237,57 @@ allowlists, so an action cannot be called as a server method or the other
 way round. Nothing is rendered unless the method asks for it with
 `refresh()`, below.
 
+### Uploads
+
+An `#[Upload]` method takes a file from the device. The app sends it with
+`$this->uploadToServer('savePhoto', $path)` from a component that uses
+`UsesServer`. There is no method of that name on the device.
+
+```php
+use Illuminate\Http\UploadedFile;
+use Native\Asgard\Attributes\Upload;
+
+#[Upload(maxSize: '10M', mimes: ['image/jpeg', 'image/png'])]
+public function savePhoto(UploadedFile $file, string $caption = ''): void
+{
+    $this->photo = $file->store('photos', 'public');
+}
+```
+
+The first parameter must take an `UploadedFile`. Any others are args from the
+device, checked as an action's are. Everything else works as a `#[Server]`
+method does: the component is hydrated from the device's state, the answer is
+the props the method changed, and `refresh()` works the same way.
+`#[Upload]` is its own allowlist, apart from `#[Action]` and `#[Server]`.
+
+- `maxSize` is bytes, or a size like `'512K'`, `'10M'` or `'1G'`. It can lower
+  `asgard.uploads.max_size` (20M by default) but never raise it. Too big is a
+  413.
+- `mimes` lists the types the file may have. The server sniffs the type from
+  the bytes with `finfo`, and ignores what the device said. `'image/*'`
+  matches any image. Leave it out to take any type. A type not on the list is
+  a 415.
+- The file is in a temp file the server named, and it is deleted when the
+  method returns. Store it to keep it. `getClientOriginalName()` is the
+  device's filename, cleaned up, for display only. Never build a path from it.
+  `getClientMimeType()` is the sniffed type.
+
+The whole file goes in one sealed request body, so the server's limits must
+let it through:
+
+- PHP's `post_max_size` must be above `max_size` plus a little (the frame
+  header holds the state, and encryption adds about 0.4%). `upload_max_filesize`
+  does not apply, since this is not a multipart form.
+- nginx's `client_max_body_size` (1M by default) must allow the same. Other
+  proxies and WAFs have their own body limits.
+- The body is held in memory while it is checked and decrypted. Allow
+  `memory_limit` about four times `max_size`.
+- A body bigger than `max_size` allows is refused with a plain 413 before it is
+  hashed or decrypted.
+
 ### Redrawing other regions
 
-Inside an `#[Action]` or `#[Server]` method, `$this->refresh()` says which
+Inside an `#[Action]`, `#[Server]` or `#[Upload]` method, `$this->refresh()` says which
 other regions need drawing again. There are three cases.
 
 **Same component, inline.** Name one or more regions of this component:
@@ -760,6 +808,39 @@ out. The answer is still never gzipped.
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 500 | `{"error":"invalid_delta"}` | The method left a changed prop that is not a plain JSON value. The message is included in debug. |
 
+### Upload
+
+**Endpoint:** `{base}/_asgard/upload`, in the same two forms as render. Its
+signature must carry a nonce.
+
+**Request body:** a frame, not JSON. It is sealed like every other body, with
+the same `Content-Type: application/json` on the wire, and never gzipped.
+
+```
+uint32, big-endian   N, the length of the header (at most 1 MiB)
+N bytes              the header, a JSON object
+the rest             the file, exactly `size` bytes
+```
+
+```json
+{"protocol":1,"component":"app.native.screens.home","method":"savePhoto","args":[],"state":{"name":"Simon"},"platform":"ios","filename":"IMG_0001.jpg","mime":"image/jpeg","size":2483113}
+```
+
+`filename` and `mime` are what the device says, and only informational.
+A frame was picked over JSON with the file in base64, which would make every
+upload a third bigger and need it decoded in memory as well.
+
+**Response 200:** as a call's.
+
+**Errors:** as a call's, plus:
+
+| Status | Body | When |
+| --- | --- | --- |
+| 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[Upload]` method on the component, or the arg count doesn't fit it. |
+| 413 | `{"error":"too_large",…}` | The file is over the method's `maxSize` or `asgard.uploads.max_size`. Plain and unsigned when it is caught before decrypting. |
+| 415 | `{"error":"unsupported_type",…}` | The sniffed type is not in the method's `mimes`. |
+| 422 | `{"error":"invalid_request","message":…}` | A bad frame, a `size` that is not the number of bytes sent, an empty file, or anything a call refuses. |
+
 ### Stream
 
 **Endpoint:** `{base}/_asgard/stream`, in the same two forms as render
@@ -863,6 +944,10 @@ verifies on the stream it was sent on.
 - A call is only reachable for a method that passes the same checks as an
   action but carries `#[Server]`. The wire `method` is only ever a key into
   that map. A call needs a nonce, and a nonce is refused the second time.
+- An upload is only reachable for a method that carries `#[Upload]`, passes
+  the same checks, and whose first param takes an `UploadedFile`. It needs a
+  nonce too. The file's type is sniffed from its bytes, and its device
+  filename is never part of a path.
 - Fragments are validated before they leave. Callback slots must be
   `{call, args, target?}` objects. Screen chrome (`top_bar*`,
   `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are

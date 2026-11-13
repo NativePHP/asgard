@@ -8,17 +8,14 @@ use Illuminate\Http\Request;
 use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Http\Concerns\AnswersWithDelta;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Http\Concerns\RendersRegions;
-use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\ActionInvoker;
 use Native\Asgard\Support\Callback;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\Hydrator;
 use Native\Asgard\Support\PushVersions;
-use ReflectionObject;
-use ReflectionProperty;
-use UnexpectedValueException;
 
 /**
  * Runs the server half of a `#[Server]` method and answers with the props
@@ -45,12 +42,11 @@ use UnexpectedValueException;
  */
 class CallController
 {
+    use AnswersWithDelta;
     use ReadsAsgardRequests;
     use RendersRegions;
 
     private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'platform'];
-
-    private const MAX_DEPTH = 32;
 
     public function __construct(
         protected ComponentRegistry $registry,
@@ -102,36 +98,7 @@ class CallController
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
 
-        try {
-            $delta = $this->delta($component, $before);
-        } catch (UnexpectedValueException $e) {
-            report($e);
-
-            return config('app.debug')
-                ? $this->error(500, 'invalid_delta', $class.'::'.$payload['method'].'() left a prop that cannot be sent. '.$e->getMessage())
-                : response()->json(['error' => 'invalid_delta'], 500);
-        }
-
-        $answer = ['protocol' => self::PROTOCOL, 'delta' => (object) $delta];
-
-        $more = $this->refreshed($component, $metadata, $payload['component'], $channels, $payload['platform']);
-
-        if ($more instanceof JsonResponse) {
-            return $more;
-        }
-
-        if ($more['fragments'] !== []) {
-            $answer['fragments'] = $more['fragments'];
-        }
-
-        if ($more['refresh'] !== []) {
-            $answer['refresh'] = $more['refresh'];
-        }
-
-        // Never compressed, fragments or not: the delta can mix the
-        // server's values with text the device chose (§7.4).
-
-        return response()->json($answer, 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before, $payload['platform']);
     }
 
     /**
@@ -161,101 +128,5 @@ class CallController
             'state' => $this->state($body['state'] ?? null),
             'platform' => $this->platform($body['platform'] ?? null),
         ];
-    }
-
-    /**
-     * Every public prop's serialize() form. An unset typed prop is absent,
-     * so one the method fills in counts as changed.
-     *
-     * @return array<string, string>
-     */
-    protected function fingerprints(ServerComponent $component): array
-    {
-        $prints = [];
-
-        foreach ($this->properties($component) as $name => $property) {
-            if ($property->isInitialized($component)) {
-                $prints[$name] = serialize($property->getValue($component));
-            }
-        }
-
-        return $prints;
-    }
-
-    /**
-     * The props whose value differs from what hydration left, checked to
-     * be plain JSON values.
-     *
-     * @param  array<string, string>  $before
-     * @return array<string, mixed>
-     */
-    protected function delta(ServerComponent $component, array $before): array
-    {
-        $delta = [];
-
-        foreach ($this->properties($component) as $name => $property) {
-            if (! $property->isInitialized($component)) {
-                continue;
-            }
-
-            $value = $property->getValue($component);
-
-            if (array_key_exists($name, $before) && $before[$name] === serialize($value)) {
-                continue;
-            }
-
-            if (! self::isJsonValue($value, 0)) {
-                throw new UnexpectedValueException("[{$name}] must be null, a bool, a finite number, a UTF-8 string, or an array of those.");
-            }
-
-            $delta[$name] = $value;
-        }
-
-        return $delta;
-    }
-
-    /** @return array<string, ReflectionProperty> */
-    protected function properties(ServerComponent $component): array
-    {
-        $properties = [];
-
-        foreach ((new ReflectionObject($component))->getProperties(ReflectionProperty::IS_PUBLIC) as $property) {
-            if (! $property->isStatic()) {
-                $properties[$property->getName()] = $property;
-            }
-        }
-
-        return $properties;
-    }
-
-    private static function isJsonValue(mixed $value, int $depth): bool
-    {
-        if ($value === null || is_bool($value) || is_int($value)) {
-            return true;
-        }
-
-        if (is_float($value)) {
-            return is_finite($value);
-        }
-
-        if (is_string($value)) {
-            return mb_check_encoding($value, 'UTF-8');
-        }
-
-        if (! is_array($value) || $depth >= self::MAX_DEPTH) {
-            return false;
-        }
-
-        foreach ($value as $key => $item) {
-            if (is_string($key) && ! mb_check_encoding($key, 'UTF-8')) {
-                return false;
-            }
-
-            if (! self::isJsonValue($item, $depth + 1)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 }

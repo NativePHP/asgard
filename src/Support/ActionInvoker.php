@@ -36,8 +36,11 @@ final class ActionInvoker
      * @param  ActionSpec  $spec
      * @param  list<mixed>  $args
      * @param  string  $field  What the error calls the args.
+     * @param  list<mixed>  $leading  Passed ahead of the args, unchecked: the
+     *                                server's own values, such as an upload's
+     *                                file. The spec describes only the args.
      */
-    public static function invoke(ServerComponent $component, string $method, array $spec, array $args, string $field = 'action.args'): void
+    public static function invoke(ServerComponent $component, string $method, array $spec, array $args, string $field = 'action.args', array $leading = []): void
     {
         foreach ($args as $i => $arg) {
             $param = $spec['params'][$i] ?? $spec['variadic'];
@@ -48,7 +51,7 @@ final class ActionInvoker
         }
 
         // Strict types are on in this file, so PHP does no coercion either.
-        $component->{$method}(...$args);
+        $component->{$method}(...$leading, ...$args);
     }
 
     /** @param ParamSpec $param */

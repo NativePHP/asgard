@@ -4,7 +4,7 @@ return [
 
     /*
     | Path prefix for the endpoints: {path}/session, {path}/render,
-    | {path}/stream and {path}/routes.
+    | {path}/call, {path}/upload, {path}/stream and {path}/routes.
     */
     'path' => env('ASGARD_PATH', '_asgard'),
 
@@ -98,6 +98,22 @@ return [
     | tunnel that needs trusted proxies, or set this.
     */
     'media_url' => env('ASGARD_MEDIA_URL'),
+
+    /*
+    | File uploads from the device to #[Upload] methods, at {path}/upload.
+    |
+    | max_size: the largest file any method takes, as bytes or a size such
+    |           as '20M'. An #[Upload] can set a lower one, never a higher
+    |           one. A bigger body is refused with 413 before it is
+    |           decrypted. PHP's post_max_size and the web server's body
+    |           limit (nginx client_max_body_size) must allow it too, plus
+    |           about 1% and the state the device sends. upload_max_filesize
+    |           does not apply. The whole file is held in memory while it is
+    |           decrypted, so allow memory_limit about four times this.
+    */
+    'uploads' => [
+        'max_size' => env('ASGARD_UPLOAD_MAX_SIZE', '20M'),
+    ],
 
     /*
     | Region views: a #[Region] method may return view('...') written in the

@@ -79,8 +79,8 @@ abstract class ServerComponent
     }
 
     /**
-     * Ask for other regions to be drawn again, from inside an #[Action] or
-     * #[Server] method.
+     * Ask for other regions to be drawn again, from inside an #[Action],
+     * #[Server] or #[Upload] method.
      *
      * Regions of this component are rendered here, after the method runs,
      * with the state it left and the request's user, and travel in the same

@@ -2,12 +2,15 @@
 
 namespace Native\Asgard\Support;
 
+use Illuminate\Http\UploadedFile;
+use InvalidArgumentException;
 use LogicException;
 use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Attributes\Screen;
 use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\Upload;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\ServerScreen;
 use ReflectionClass;
@@ -38,6 +41,11 @@ use ReflectionUnionType;
  *             be called from the wire.
  * servers:    method name => parameter spec, from #[Server] under the same
  *             rules as actions. A call request can only run these.
+ * uploads:    method name => upload spec, from #[Upload] under the same
+ *             rules, except that the first parameter must take an
+ *             UploadedFile. The spec covers the parameters after it, with
+ *             the attribute's size cap in bytes and its mime types. An
+ *             upload request can only run these.
  */
 final class ComponentMetadata
 {
@@ -51,6 +59,7 @@ final class ComponentMetadata
      * @param  array<string, array{types: list<string>, nullable: bool}>  $properties
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $servers
+     * @param  array<string, array{spec: array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}, maxSize: int|null, mimes: list<string>}>  $uploads
      */
     private function __construct(
         public readonly array $regions,
@@ -59,6 +68,7 @@ final class ComponentMetadata
         public readonly array $uncompressed = [],
         public readonly array $shared = [],
         public readonly array $servers = [],
+        public readonly array $uploads = [],
     ) {}
 
     public function compresses(string $region): bool
@@ -183,8 +193,9 @@ final class ComponentMetadata
 
         $actions = self::callable($reflection, Action::class);
         $servers = self::callable($reflection, Server::class);
+        $uploads = self::uploadable($reflection);
 
-        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers);
+        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers, $uploads);
     }
 
     /**
@@ -197,6 +208,27 @@ final class ComponentMetadata
      * @return array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>
      */
     private static function callable(ReflectionClass $reflection, string $attribute): array
+    {
+        $methods = [];
+
+        foreach (self::marked($reflection, $attribute) as $method) {
+            $spec = self::actionSpec($method);
+            if ($spec !== null) {
+                $methods[$method->getName()] = $spec;
+            }
+        }
+
+        return $methods;
+    }
+
+    /**
+     * The public methods carrying this attribute that the wire may run at
+     * all, under the rules callable() describes.
+     *
+     * @param  class-string  $attribute
+     * @return list<ReflectionMethod>
+     */
+    private static function marked(ReflectionClass $reflection, string $attribute): array
     {
         $class = $reflection->getName();
         $methods = [];
@@ -212,13 +244,59 @@ final class ComponentMetadata
                 continue;
             }
 
-            $spec = self::actionSpec($method);
-            if ($spec !== null) {
-                $methods[$method->getName()] = $spec;
-            }
+            $methods[] = $method;
         }
 
         return $methods;
+    }
+
+    /**
+     * method name => upload spec, for the #[Upload] methods the wire may
+     * run. The first parameter must take an UploadedFile: a plain class
+     * type that UploadedFile is, not nullable, not variadic and not by
+     * reference. The rest must pass as an action's parameters do.
+     *
+     * @return array<string, array{spec: array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}, maxSize: int|null, mimes: list<string>}>
+     */
+    private static function uploadable(ReflectionClass $reflection): array
+    {
+        $uploads = [];
+
+        foreach (self::marked($reflection, Upload::class) as $method) {
+            $file = $method->getParameters()[0] ?? null;
+            $type = $file?->getType();
+
+            if ($file === null
+                || $file->isVariadic()
+                || $file->isPassedByReference()
+                || ! $type instanceof ReflectionNamedType
+                || $type->isBuiltin()
+                || $type->allowsNull()
+                || ! is_a(UploadedFile::class, $type->getName(), true)) {
+                continue;
+            }
+
+            $spec = self::actionSpec($method, 1);
+            if ($spec === null) {
+                continue;
+            }
+
+            $upload = $method->getAttributes(Upload::class)[0]->newInstance();
+
+            try {
+                $maxSize = $upload->maxSize === null ? null : Upload::bytes($upload->maxSize);
+            } catch (InvalidArgumentException $e) {
+                throw new LogicException("#[Upload] on [{$reflection->getName()}::{$method->getName()}()]: ".$e->getMessage());
+            }
+
+            $uploads[$method->getName()] = [
+                'spec' => $spec,
+                'maxSize' => $maxSize,
+                'mimes' => array_values(array_map(fn ($mime) => strtolower((string) $mime), $upload->mimes ?? [])),
+            ];
+        }
+
+        return $uploads;
     }
 
     /** Types an action parameter may declare. Everything else refuses the action. */
@@ -229,13 +307,13 @@ final class ComponentMetadata
     /**
      * @return array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}|null
      */
-    private static function actionSpec(ReflectionMethod $method): ?array
+    private static function actionSpec(ReflectionMethod $method, int $skip = 0): ?array
     {
         $params = [];
         $variadic = null;
         $scalarVariadic = false;
 
-        foreach ($method->getParameters() as $parameter) {
+        foreach (array_slice($method->getParameters(), $skip) as $parameter) {
             $spec = self::parameterSpec($parameter);
             if ($spec === null) {
                 return null;
@@ -252,7 +330,7 @@ final class ComponentMetadata
 
         return [
             'params' => $params,
-            'required' => $method->getNumberOfRequiredParameters(),
+            'required' => max(0, $method->getNumberOfRequiredParameters() - $skip),
             'variadic' => $variadic,
             'scalarVariadic' => $scalarVariadic,
         ];

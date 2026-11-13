@@ -22,6 +22,7 @@ use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RowsScreen;
 use Native\Asgard\Tests\Fixtures\ServerMethodScreen;
 use Native\Asgard\Tests\Fixtures\TopBarViewScreen;
+use Native\Asgard\Tests\Fixtures\UploadScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
 abstract class TestCase extends BaseTestCase
@@ -62,6 +63,7 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.channel' => ChannelScreen::class,
             'app.native.screens.channel_two' => ChannelScreen::class,
             'app.native.screens.server_methods' => ServerMethodScreen::class,
+            'app.native.screens.uploads' => UploadScreen::class,
         ]);
         $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
         $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
@@ -77,6 +79,7 @@ abstract class TestCase extends BaseTestCase
         PromoScreen::$calls = [];
         ChannelScreen::$extra = [];
         ServerMethodScreen::$calls = [];
+        UploadScreen::$calls = [];
 
         parent::tearDown();
     }
@@ -123,8 +126,8 @@ abstract class TestCase extends BaseTestCase
             }
         }
 
-        // Actions and calls are unsafe, so they sign a nonce by default.
-        $unsafe = $endpoint === 'call' || (is_array($body) && array_key_exists('action', $body));
+        // Actions, calls and uploads are unsafe, so they sign a nonce by default.
+        $unsafe = in_array($endpoint, ['call', 'upload'], true) || (is_array($body) && array_key_exists('action', $body));
         $nonce = $sign['nonce'] ?? ($unsafe ? Base64Url::encode(random_bytes(16)) : false);
 
         // Sign the authority the test request will really carry.
