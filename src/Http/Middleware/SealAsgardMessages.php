@@ -14,8 +14,8 @@ use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Checks every render and stream request before anything reads its body,
- * and seals every answer (protocol §7.6).
+ * Checks every render, call, routes and stream request before anything
+ * reads its body, and seals every answer (protocol §7.6).
  *
  * The order is the protocol's: method, session known (419), Content-Digest,
  * signature, decrypt (403), then the app's own middleware such as bearer

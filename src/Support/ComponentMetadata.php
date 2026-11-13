@@ -7,6 +7,7 @@ use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Attributes\Screen;
+use Native\Asgard\Attributes\Server;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\ServerScreen;
 use ReflectionClass;
@@ -35,6 +36,8 @@ use ReflectionUnionType;
  *             take anything other than plain JSON values (class types,
  *             callable, by-reference...) are left out, so they can never
  *             be called from the wire.
+ * servers:    method name => parameter spec, from #[Server] under the same
+ *             rules as actions. A call request can only run these.
  */
 final class ComponentMetadata
 {
@@ -47,6 +50,7 @@ final class ComponentMetadata
      * @param  list<string>  $shared
      * @param  array<string, array{types: list<string>, nullable: bool}>  $properties
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
+     * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $servers
      */
     private function __construct(
         public readonly array $regions,
@@ -54,6 +58,7 @@ final class ComponentMetadata
         public readonly array $actions = [],
         public readonly array $uncompressed = [],
         public readonly array $shared = [],
+        public readonly array $servers = [],
     ) {}
 
     public function compresses(string $region): bool
@@ -176,13 +181,32 @@ final class ComponentMetadata
             $properties[$property->getName()] = ['types' => $types, 'nullable' => $nullable];
         }
 
-        $actions = [];
+        $actions = self::callable($reflection, Action::class);
+        $servers = self::callable($reflection, Server::class);
+
+        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers);
+    }
+
+    /**
+     * method name => parameter spec, for the methods carrying this
+     * attribute that the wire may run: public, non-static, non-abstract,
+     * non-magic, declared on the class itself, not a region and not a
+     * screen's render() or chrome().
+     *
+     * @param  class-string  $attribute
+     * @return array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>
+     */
+    private static function callable(ReflectionClass $reflection, string $attribute): array
+    {
+        $class = $reflection->getName();
+        $methods = [];
+
         foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
             if ($method->isStatic()
                 || $method->isAbstract()
                 || $method->getDeclaringClass()->getName() !== $class
                 || str_starts_with($method->getName(), '__')
-                || $method->getAttributes(Action::class) === []
+                || $method->getAttributes($attribute) === []
                 || $method->getAttributes(Region::class) !== []
                 || ($reflection->isSubclassOf(ServerScreen::class) && in_array($method->getName(), ['render', 'chrome'], true))) {
                 continue;
@@ -190,11 +214,11 @@ final class ComponentMetadata
 
             $spec = self::actionSpec($method);
             if ($spec !== null) {
-                $actions[$method->getName()] = $spec;
+                $methods[$method->getName()] = $spec;
             }
         }
 
-        return new self($regions, $properties, $actions, $uncompressed, $shared);
+        return $methods;
     }
 
     /** Types an action parameter may declare. Everything else refuses the action. */

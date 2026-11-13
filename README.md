@@ -173,6 +173,37 @@ versions of those, or left untyped. A class or interface type, `callable`,
 callable from the wire. Args are passed by position with no container
 injection and no model or enum binding.
 
+### Server methods
+
+A `#[Server]` method is a method call from the device that runs here. The
+device's component and the server component each have a method of the same
+name, both marked `#[Server]`. The device body runs first (a loading flag, an
+optimistic update), then the call comes here with the device's state:
+
+```php
+use Native\Asgard\Attributes\Server;
+
+#[Server]
+public function roll(): void
+{
+    $this->result = random_int(1, 6);
+}
+```
+
+The server hydrates the component from that state, runs the method and sends
+back only the public props whose value changed, compared by their
+`serialize()` form. The device applies each one only if its own value has not
+moved since it sent the call. A `#[Locked]` prop the method changes is sent
+back too. A changed prop must be null, a bool, a finite number, a UTF-8
+string or an array of those, or the call is a 500.
+
+The method follows the same rules as an action: public, non-static, declared
+on the registered class itself (or a trait it uses), not a `#[Region]`, and
+params limited to plain JSON types. `#[Action]` and `#[Server]` are separate
+allowlists, so an action cannot be called as a server method or the other
+way round. Nothing is rendered, so the answer carries no fragment. A device
+that wants a region redrawn after a call asks for it again.
+
 ## Server screens
 
 A region lives inside a screen the app wrote. A server screen is a whole
@@ -491,9 +522,9 @@ secret is never sent. Sessions live in a cache store and expire after
 ← {"session":"<id>","server_public":"<base64url point>","expires_in":1800,"encoding":"tree/json"}
 ```
 
-Render and stream requests then carry `Asgard-Session-Id`, an `aes128gcm` body
+Render, call and stream requests then carry `Asgard-Session-Id`, an `aes128gcm` body
 (RFC 8188), `Content-Digest` (RFC 9530) and an `hmac-sha256` signature under
-the label `asgard` (RFC 9421). Server actions also sign a nonce, and a nonce
+the label `asgard` (RFC 9421). Server actions and calls also sign a nonce, and a nonce
 is refused the second time. The `SealAsgardMessages` middleware checks all of
 it before your middleware or any controller sees the request, and seals
 whatever comes back. Stream events are sealed one by one and bound to the
@@ -589,6 +620,37 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment. The message is included in debug. |
+
+### Call
+
+**Endpoint:** `{base}/_asgard/call`, in the same two forms as render. Like an
+action, its signature must carry a nonce.
+
+**Request body:** the component, the `#[Server]` method, its args by position,
+the device's state after its own body ran, and the platform. Nothing else is
+allowed.
+
+```json
+{"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{"rolling":true},"platform":"ios"}
+```
+
+**Response 200:** the props the method changed. `delta` is always an object,
+`{}` when nothing changed. It is never gzipped, since it can mix the server's
+values with text the device chose.
+
+```json
+{"protocol":1,"delta":{"result":4}}
+```
+
+**Errors:** as render, except:
+
+| Status | Body | When |
+| --- | --- | --- |
+| 403 | `{"error":"nonce_required"}` | The signature has no nonce. |
+| 404 | `{"error":"unknown_component"}` | The address is not registered. |
+| 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[Server]` method on the component, or the arg count doesn't fit it. |
+| 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
+| 500 | `{"error":"invalid_delta"}` | The method left a changed prop that is not a plain JSON value. The message is included in debug. |
 
 ### Stream
 
@@ -690,6 +752,9 @@ verifies on the stream it was sent on.
   the call (no `"5"` into `int`). The wire `call` is only ever a key into that
   map, and region resolution happens first, so an action never runs for a
   region that doesn't exist.
+- A call is only reachable for a method that passes the same checks as an
+  action but carries `#[Server]`. The wire `method` is only ever a key into
+  that map. A call needs a nonce, and a nonce is refused the second time.
 - Fragments are validated before they leave. Callback slots must be
   `{call, args, target?}` objects. Screen chrome (`top_bar*`,
   `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are

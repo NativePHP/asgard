@@ -8,7 +8,8 @@ use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\ServerComponent;
 
 /**
- * Runs an #[Action] method with positional, already shape-checked args.
+ * Runs an #[Action] or #[Server] method with positional, already
+ * shape-checked args.
  * No container, no model or enum binding: each arg must already be the
  * plain JSON value the parameter declares. A mismatch is InvalidRequest.
  *
@@ -34,14 +35,15 @@ final class ActionInvoker
     /**
      * @param  ActionSpec  $spec
      * @param  list<mixed>  $args
+     * @param  string  $field  What the error calls the args.
      */
-    public static function invoke(ServerComponent $component, string $method, array $spec, array $args): void
+    public static function invoke(ServerComponent $component, string $method, array $spec, array $args, string $field = 'action.args'): void
     {
         foreach ($args as $i => $arg) {
             $param = $spec['params'][$i] ?? $spec['variadic'];
 
             if ($param === null || ! self::fits($arg, $param)) {
-                throw new InvalidRequest("action.args[{$i}] does not fit the parameter type.");
+                throw new InvalidRequest("{$field}[{$i}] does not fit the parameter type.");
             }
         }
 

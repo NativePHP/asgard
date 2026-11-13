@@ -20,6 +20,7 @@ use Native\Asgard\Tests\Fixtures\CounterScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
 use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RowsScreen;
+use Native\Asgard\Tests\Fixtures\ServerMethodScreen;
 use Native\Asgard\Tests\Fixtures\TopBarViewScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
 
@@ -60,6 +61,7 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.blade' => BladeScreen::class,
             'app.native.screens.channel' => ChannelScreen::class,
             'app.native.screens.channel_two' => ChannelScreen::class,
+            'app.native.screens.server_methods' => ServerMethodScreen::class,
         ]);
         $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
         $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
@@ -74,6 +76,7 @@ abstract class TestCase extends BaseTestCase
         ChildScreen::$calls = [];
         PromoScreen::$calls = [];
         ChannelScreen::$extra = [];
+        ServerMethodScreen::$calls = [];
 
         parent::tearDown();
     }
@@ -120,7 +123,9 @@ abstract class TestCase extends BaseTestCase
             }
         }
 
-        $nonce = $sign['nonce'] ?? (is_array($body) && array_key_exists('action', $body) ? Base64Url::encode(random_bytes(16)) : false);
+        // Actions and calls are unsafe, so they sign a nonce by default.
+        $unsafe = $endpoint === 'call' || (is_array($body) && array_key_exists('action', $body));
+        $nonce = $sign['nonce'] ?? ($unsafe ? Base64Url::encode(random_bytes(16)) : false);
 
         // Sign the authority the test request will really carry.
         $url = parse_url($this->prepareUrlForRequest("/_asgard/{$endpoint}"));

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Native\Asgard\Http\CallController;
 use Native\Asgard\Http\Middleware\SealAsgardMessages;
 use Native\Asgard\Http\RenderController;
 use Native\Asgard\Http\RoutesController;
@@ -20,6 +21,11 @@ Route::post($prefix.'/session', SessionController::class)
 Route::match(['QUERY', 'POST'], $prefix.'/render', RenderController::class)
     ->middleware([SealAsgardMessages::class, ...$middleware])
     ->name('asgard.render');
+
+// The server half of a #[Server] method. Unsafe, so it needs a nonce.
+Route::match(['QUERY', 'POST'], $prefix.'/call', CallController::class)
+    ->middleware([SealAsgardMessages::class, ...$middleware])
+    ->name('asgard.call');
 
 Route::match(['QUERY', 'POST'], $prefix.'/stream', StreamController::class)
     ->middleware([SealAsgardMessages::class, ...$middleware])
