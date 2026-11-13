@@ -22,20 +22,6 @@ use Attribute;
  * reason #[Region] has it (protocol §7.4). `shared: true` is #[Region]'s
  * too: the screen renders the same for everyone with the same state, so a
  * push sends it inline (protocol §8.1).
- *
- * `title` is a nav bar title the device shows the moment the screen opens,
- * before it has asked the server for anything:
- *
- *     #[Screen('/promos/{id}', title: 'Promo #{id}')]
- *
- * `{name}` placeholders are filled from the route parameters of the same
- * name, and every placeholder must be one. The title is plain text of at
- * most 100 characters with no control characters, shown as is and never
- * as markup. The real title from chrome() replaces it once the body lands.
- *
- * The template travels in the route list, which every device fetches, so
- * it must never hold anything private. Only route parameters are filled
- * in, on the device.
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final class Screen
@@ -45,6 +31,5 @@ final class Screen
         public ?string $name = null,
         public bool $compress = true,
         public bool $shared = false,
-        public ?string $title = null,
     ) {}
 }

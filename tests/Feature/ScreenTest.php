@@ -18,17 +18,12 @@ use Native\Asgard\Support\Hydrator;
 use Native\Asgard\Support\StreamClock;
 use Native\Asgard\Tests\Fixtures\BadUriScreen;
 use Native\Asgard\Tests\Fixtures\BareScreen;
-use Native\Asgard\Tests\Fixtures\BlankTitleScreen;
 use Native\Asgard\Tests\Fixtures\ClashingScreen;
-use Native\Asgard\Tests\Fixtures\ControlCharacterTitleScreen;
 use Native\Asgard\Tests\Fixtures\FakeClock;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
-use Native\Asgard\Tests\Fixtures\LongTitleScreen;
 use Native\Asgard\Tests\Fixtures\NoAttributeScreen;
-use Native\Asgard\Tests\Fixtures\OptionalParamTitleScreen;
 use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RegionScreen;
-use Native\Asgard\Tests\Fixtures\UnknownPlaceholderTitleScreen;
 
 require_once __DIR__.'/../Fixtures/ScreenFixtures.php';
 
@@ -163,7 +158,7 @@ it('registers config screens as components at their address', function () {
 
 it('lists routes in registration order', function () {
     expect(Asgard::routes())->toBe([
-        ['uri' => '/promos/{id}', 'screen' => 'promos.show', 'title' => 'Promo #{id}'],
+        ['uri' => '/promos/{id}', 'screen' => 'promos.show'],
         ['uri' => '/', 'screen' => 'native.asgard.tests.fixtures.bare_screen'],
         ['uri' => '/bad-chrome', 'screen' => 'native.asgard.tests.fixtures.bad_chrome_screen'],
         ['uri' => '/blade-promos/{id}', 'screen' => 'blade_promos.show'],
@@ -180,26 +175,7 @@ it('refuses screens it cannot route', function (string $class, string $message) 
     'a route already taken' => [ClashingScreen::class, 'already taken'],
     'an optional parameter mid-route' => [BadUriScreen::class, 'must be a path'],
     'not a screen' => [stdClass::class, 'must extend'],
-    'a title placeholder the route lacks' => [UnknownPlaceholderTitleScreen::class, 'not a parameter'],
-    'a title with a control character' => [ControlCharacterTitleScreen::class, 'no control characters'],
-    'a blank title' => [BlankTitleScreen::class, 'plain text'],
-    'a title over 100 characters' => [LongTitleScreen::class, 'plain text'],
 ]);
-
-it('takes a title placeholder for an optional parameter', function () {
-    $registry = new ScreenRegistry(new ComponentRegistry, [OptionalParamTitleScreen::class]);
-
-    expect($registry->routes())->toBe([['uri' => '/titled/{id?}', 'screen' => 'native.asgard.tests.fixtures.optional_param_title_screen', 'title' => 'Ticket {id}']]);
-});
-
-it('changes the route list version when a title changes', function () {
-    $plain = new ScreenRegistry(new ComponentRegistry, [BareScreen::class]);
-    $titled = new ScreenRegistry(new ComponentRegistry, [PromoScreen::class]);
-
-    expect($titled->routes()[0])->toHaveKey('title')
-        ->and($plain->routes()[0])->not->toHaveKey('title')
-        ->and($titled->version())->not->toBe($plain->version());
-});
 
 it('refuses a screen whose address another component already has', function () {
     $registry = new ScreenRegistry(new ComponentRegistry(['promos.show' => HomeScreen::class]));
@@ -217,7 +193,7 @@ it('serves the route list sealed, with a version', function () {
     $response = $this->asgard(['protocol' => 1], 'POST', ['X-Asgard-Method' => 'QUERY'], 'routes')->assertOk();
 
     expect($response->json('protocol'))->toBe(1);
-    expect($response->json('routes.0'))->toBe(['uri' => '/promos/{id}', 'screen' => 'promos.show', 'title' => 'Promo #{id}']);
+    expect($response->json('routes.0'))->toBe(['uri' => '/promos/{id}', 'screen' => 'promos.show']);
     expect($response->json('version'))->toMatch('/^[0-9a-f]{16}$/');
     expect($this->asgard(['protocol' => 1], 'QUERY', [], 'routes')->json('version'))->toBe($response->json('version'));
 });
