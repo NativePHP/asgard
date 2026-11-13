@@ -142,6 +142,39 @@ share a compiled file with web views, and the app's web views never see the
 native tag rewriting. `php artisan view:clear` empties it along with the
 rest. `view:cache` does not precompile region views.
 
+### Images and other media
+
+Write media URLs the way you would on the web:
+
+```blade
+<image src="/storage/promo.jpg" />
+<image src="{{ asset('img/logo.png') }}" />
+<image src="img/heimdall.png" />
+```
+
+On the device a relative `src` means one of the app's own files, so Asgard
+makes every media URL absolute before a fragment or chrome leaves the
+server. That covers `src` on any element, `leadingAvatar` and
+`leadingImage` on a list item, a nav bar logo and a nav action's image.
+
+- `img/x.png`, `./img/x.png` and `/img/x.png` become `{base}/img/x.png`.
+- `//cdn.test/x.png` gets the base's scheme.
+- `http:` and `https:` URLs pass through.
+- Any other scheme (`javascript:`, `file:`, `content:` and so on) is an
+  invalid fragment. So is `data:`: platforms differ on it, and a fragment is
+  re-sent on every push, so serve the image from a URL instead.
+
+The base is `asset()`, which follows `ASSET_URL` and the request's scheme
+and host. Behind a proxy, a load balancer or a tunnel, trust the proxy
+(Laravel's `trustProxies` middleware) so the request says `https` and the
+public host, or set `asgard.media_url` (`ASGARD_MEDIA_URL`) to the base you
+want. The device only loads `https:` media, plus `http:` when the app is
+built with `app.debug` on.
+
+The device loads media itself, with no Asgard session and none of the
+user's auth. Private media needs a URL that carries its own permission:
+`URL::temporarySignedRoute()` or `Storage::temporaryUrl()`.
+
 ### Node builder
 
 `Node::make($type)` then `->key()`, `->props([...])` (merges), `->prop($k, $v)`,
@@ -834,7 +867,9 @@ verifies on the stream it was sent on.
   `{call, args, target?}` objects. Screen chrome (`top_bar*`,
   `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are
   rejected. Props keys starting `_`, `native-` or `native:` are stripped.
-  Unknown node fields are rejected.
+  Unknown node fields are rejected. Media URLs are made absolute and any
+  scheme but `http:` and `https:` is rejected. A `webview` in php mode is
+  rejected.
 - The stream endpoint applies the same checks as render to every region of
   every subscription, before any output. It renders only shared regions, on
   a fresh component hydrated from the subscription's state, with nobody

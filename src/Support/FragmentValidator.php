@@ -10,7 +10,7 @@ use Native\Asgard\Node;
  *
  * Rejects screen chrome and nested regions (§9.3), unknown node keys and
  * non-plain values. Strips props whose keys start with `_`, `native-` or
- * `native:`.
+ * `native:`. Makes media URLs absolute (MediaUrls, §9.6).
  */
 final class FragmentValidator
 {
@@ -90,7 +90,7 @@ final class FragmentValidator
                     break;
 
                 case $field === 'props':
-                    $clean['props'] = self::props($value, $path);
+                    $clean['props'] = self::props($value, $path, $type);
                     if ($clean['props'] === []) {
                         unset($clean['props']);
                     }
@@ -122,7 +122,7 @@ final class FragmentValidator
     }
 
     /** @return array<string, mixed> */
-    private static function props(mixed $props, string $path): array
+    private static function props(mixed $props, string $path, string $type): array
     {
         if (! is_array($props) || ($props !== [] && array_is_list($props))) {
             throw new InvalidFragment("{$path}: 'props' must be an object.");
@@ -140,7 +140,15 @@ final class FragmentValidator
                 throw new InvalidFragment("{$path}: prop [{$name}] must be a scalar, null or an array of those.");
             }
 
-            $clean[$name] = $value;
+            $clean[$name] = in_array($name, MediaUrls::PROPS, true)
+                ? MediaUrls::resolve($value, "{$path}.props.{$name}")
+                : $value;
+        }
+
+        // A php-mode web view loads the app's own routes, which is the app's
+        // call, not a server's. The device refuses it too.
+        if ($type === 'webview' && filter_var($clean['php'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+            throw new InvalidFragment("{$path}: a webview in a fragment cannot use php mode.");
         }
 
         return $clean;

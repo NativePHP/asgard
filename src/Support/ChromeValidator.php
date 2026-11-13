@@ -113,7 +113,7 @@ final class ChromeValidator
             $clean[$key] = match ($key) {
                 'id' => $value,
                 'label', 'a11y_label', 'icon', 'ios_icon', 'android_icon' => self::string($value, $at),
-                'image' => self::url($value, $at),
+                'image' => self::media($value, $at),
                 'destructive', 'disabled' => self::bool($value, $at),
                 'on_press' => Callback::validateSlot($value, $at, 'on_press'),
                 'items' => $topLevel
@@ -186,7 +186,7 @@ final class ChromeValidator
             throw new InvalidFragment("{$path}: a logo is {\"src\", \"height\"?}.");
         }
 
-        $clean = ['src' => self::string($logo['src'], "{$path}.src")];
+        $clean = ['src' => self::media($logo['src'], "{$path}.src")];
 
         if (array_key_exists('height', $logo)) {
             if (! (is_int($logo['height']) || is_float($logo['height'])) || $logo['height'] <= 0 || $logo['height'] > 200) {
@@ -328,12 +328,13 @@ final class ChromeValidator
         return $value;
     }
 
-    private static function url(mixed $value, string $path): string
+    /** An image URL, made absolute as a fragment's are (MediaUrls). */
+    private static function media(mixed $value, string $path): string
     {
-        $value = self::string($value, $path);
+        $value = MediaUrls::resolve(self::string($value, $path), $path);
 
-        if (! preg_match('#^https://[^\s]+$#D', $value)) {
-            throw new InvalidFragment("{$path}: must be an https:// image URL.");
+        if ($value === '' || strlen($value) > self::MAX_STRING) {
+            throw new InvalidFragment("{$path}: must be an image URL of at most ".self::MAX_STRING.' bytes.');
         }
 
         return $value;

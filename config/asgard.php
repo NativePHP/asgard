@@ -90,6 +90,16 @@ return [
     ],
 
     /*
+    | Base URL for relative media URLs in fragments and chrome: an image's
+    | src, a list item's avatar, a nav bar logo. The device reads a relative
+    | path as one of the app's own files, so the server makes each one
+    | absolute before it sends it. null means asset(), which follows
+    | ASSET_URL and the request's scheme and host. Behind a proxy or a
+    | tunnel that needs trusted proxies, or set this.
+    */
+    'media_url' => env('ASGARD_MEDIA_URL'),
+
+    /*
     | Region views: a #[Region] method may return view('...') written in the
     | app's native Blade dialect.
     |

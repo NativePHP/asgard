@@ -269,7 +269,10 @@ it('validates everything the chrome builders can say', function () {
 
     $clean = ChromeValidator::validate($chrome);
 
-    expect($clean)->toBe($chrome->toArray());
+    $expected = $chrome->toArray();
+    $expected['nav_bar']['logo']['src'] = 'http://localhost/logo.png';
+
+    expect($clean)->toBe($expected);
     expect($clean['nav_bar']['search'])->toBe(['placeholder' => 'Search', 'debounce_ms' => 200, 'on_query' => ['call' => 'search', 'args' => []]]);
     expect($clean['tab_bar']['tabs'][1]['on_press'])->toBe(['navigate' => '/compose']);
     expect($clean['tab_bar']['presentation'])->toBe(['id' => 'acme:pill', 'configuration' => ['radius' => 12]]);

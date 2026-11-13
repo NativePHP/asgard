@@ -143,7 +143,7 @@ it('maps class and key, including dynamic and native:key forms', function () {
 it('keeps other attributes as props under the name they were written with', function () {
     expect(region('<image src="/a.png" :width="120" rounded alt-text="A {{ $x }}" />', ['x' => 'cat']))->toBe([
         'type' => 'image',
-        'props' => ['src' => '/a.png', 'width' => 120, 'rounded' => true, 'alt-text' => 'A cat'],
+        'props' => ['src' => 'http://localhost/a.png', 'width' => 120, 'rounded' => true, 'alt-text' => 'A cat'],
     ]);
 });
 

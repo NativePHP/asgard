@@ -38,6 +38,14 @@ class BadFragments extends ServerComponent
         return 'not a node';
     }
 
+    public string $src = '';
+
+    #[Region('image')]
+    public function image(): Node
+    {
+        return Node::make('image')->prop('src', $this->src);
+    }
+
     public string|int|bool|array|null $callback = null;
 
     #[Region('callback')]
