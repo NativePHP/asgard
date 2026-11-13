@@ -143,7 +143,7 @@ it('refuses unmarked trait methods but runs marked ones', function () {
 
 it('only knows actions declared on the class itself', function () {
     expect(array_keys(ComponentMetadata::for(HomeScreen::class)->actions))
-        ->toBe(['shuffle', 'promote', 'needsTwo', 'sum', 'lists', 'anything']);
+        ->toBe(['shuffle', 'redraw', 'hint', 'hintMany', 'promote', 'needsTwo', 'sum', 'lists', 'anything']);
     expect(array_keys(ComponentMetadata::for(ChildScreen::class)->actions))
         ->toBe(['bump', 'markedInTrait']);
 });

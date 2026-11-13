@@ -155,3 +155,48 @@ it('refuses gzip that is corrupt or cut short', function () {
         ->and(fn () => Gzip::decode('not gzip at all'))->toThrow(SecurityException::class)
         ->and(gzdecode($gz))->toBe(str_repeat('hello ', 1000));
 });
+
+// ── Several regions in one answer ───────────────────
+
+function rowsBatch(array $regions): array
+{
+    $body = rowsBody('rows');
+    unset($body['region']);
+
+    return [...$body, 'regions' => $regions];
+}
+
+it('compresses a batch when every region in it allows it', function () {
+    $response = $this->asgard(rowsBatch(['rows']))->assertOk();
+
+    expect($response->headers->get('Asgard-Content-Coding'))->toBe('gzip')
+        ->and($response->json('fragments.rows.fragment'))->toHaveCount(200);
+});
+
+it('leaves a batch uncompressed when any region in it opted out', function () {
+    $response = $this->asgard(rowsBatch(['rows', 'private']))->assertOk();
+
+    expect($response->headers->get('Asgard-Content-Coding'))->toBe('identity')
+        ->and($response->json('fragments.private.fragment'))->toHaveCount(200);
+});
+
+it('leaves an action answer uncompressed when an inline region opted out', function () {
+    $response = $this->asgard(rowsBody('rows', 200, ['action' => ['call' => 'grow', 'args' => []]]))->assertOk();
+
+    expect($response->headers->get('Asgard-Content-Coding'))->toBe('identity')
+        ->and($response->json('fragment'))->toHaveCount(210)
+        ->and(array_keys($response->json('fragments')))->toBe(['private']);
+});
+
+it('never compresses a call answer, even with fragments that allow it', function (array $regions) {
+    $body = ['protocol' => 1, 'component' => 'app.native.screens.rows', 'method' => 'regrow', 'args' => $regions, 'state' => ['count' => 200], 'platform' => 'ios'];
+
+    $response = $this->asgard($body, 'QUERY', [], 'call')->assertOk();
+
+    expect($response->headers->get('Asgard-Content-Coding'))->toBe('identity')
+        ->and($response->json('delta'))->toBe(['count' => 210]);
+})->with([
+    'a region that allows it' => [['rows']],
+    'one that opted out' => [['rows', 'private']],
+    'no fragments' => [[]],
+]);

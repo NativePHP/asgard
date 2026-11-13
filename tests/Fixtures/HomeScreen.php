@@ -71,6 +71,35 @@ class HomeScreen extends ServerComponent
         $this->name .= $suffix;
     }
 
+    /** Bumps the count, then asks for these regions of this component. */
+    #[Action]
+    public function redraw(string ...$regions): void
+    {
+        static::$calls[] = 'redraw';
+        $this->count++;
+        $this->tags = ['a', 'b'];
+        $this->refresh(...$regions);
+    }
+
+    /** Names another component, or one of its regions, for the device to fetch. */
+    #[Action]
+    public function hint(string $target, string ...$region): void
+    {
+        static::$calls[] = 'hint';
+        $this->refresh($target, ...$region);
+    }
+
+    /** Several refresh() calls in one action. */
+    #[Action]
+    public function hintMany(): void
+    {
+        $this->refresh(ChildScreen::class, 'count');
+        $this->refresh('app.native.screens.child');
+        $this->refresh('app.native.screens.channel', 'title');
+        $this->refresh('list');
+        $this->refresh('list', 'tags');
+    }
+
     #[Action]
     public function promote(): void
     {

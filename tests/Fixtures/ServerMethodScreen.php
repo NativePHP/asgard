@@ -82,6 +82,28 @@ class ServerMethodScreen extends ServerComponent
         $this->anything = [NAN];
     }
 
+    /** Rolls, then asks for this component's chart and a hint for another. */
+    #[Server]
+    public function rollAndRedraw(string ...$regions): void
+    {
+        static::$calls[] = 'rollAndRedraw';
+        $this->roll = 6;
+        $this->refresh(...$regions);
+    }
+
+    #[Server]
+    public function hintOther(string $target, string ...$region): void
+    {
+        static::$calls[] = 'hintOther';
+        $this->refresh($target, ...$region);
+    }
+
+    #[Region('rolled')]
+    public function rolledRegion(): Node
+    {
+        return Node::text('Rolled '.($this->roll ?? 'nothing').' on '.$this->platform().' in '.$this->region());
+    }
+
     #[Server]
     public function needsTwo(int $a, int $b): void
     {

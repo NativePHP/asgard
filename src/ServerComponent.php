@@ -3,6 +3,8 @@
 namespace Native\Asgard;
 
 use Illuminate\Contracts\Broadcasting\HasBroadcastChannel;
+use InvalidArgumentException;
+use Native\Asgard\Support\ComponentMetadata;
 
 /**
  * Base class for the server half of a component.
@@ -21,6 +23,15 @@ abstract class ServerComponent
     private string $asgardRegion = '';
 
     private string $asgardPlatform = '';
+
+    /** At most this many regions rendered inline, and hints sent, per answer. */
+    public const MAX_REFRESH = 16;
+
+    /** @var array<string, true> */
+    private array $asgardInline = [];
+
+    /** @var array<string, array{component: string, region?: string}> */
+    private array $asgardHints = [];
 
     /** @internal */
     final public function setAsgardContext(string $region, string $platform): void
@@ -65,6 +76,98 @@ abstract class ServerComponent
     public function channels(): array
     {
         return [];
+    }
+
+    /**
+     * Ask for other regions to be drawn again, from inside an #[Action] or
+     * #[Server] method.
+     *
+     * Regions of this component are rendered here, after the method runs,
+     * with the state it left and the request's user, and travel in the same
+     * answer:
+     *
+     *     $this->refresh('stats');
+     *     $this->refresh('stats', 'chart');
+     *
+     * Another component is only named. The answer carries a hint, and every
+     * live instance of it on this phone that drew the region fetches it
+     * again with its own state:
+     *
+     *     $this->refresh(InboxScreen::class, 'unread');
+     *     $this->refresh('app.native.screens.inbox');
+     *
+     * Leave the region out to mean all of that component's regions. A name
+     * that is a region of this component always means that region. Other
+     * phones are reached with Asgard::push() or Asgard::to(), not this.
+     *
+     * An unknown region or component throws, as Asgard::push() does.
+     */
+    final protected function refresh(string $target, string ...$regions): void
+    {
+        $own = ComponentMetadata::for(static::class)->regions;
+
+        if (isset($own[$target])) {
+            foreach ([$target, ...$regions] as $region) {
+                if (! isset($own[$region])) {
+                    throw new InvalidArgumentException("[{$region}] is not a #[Region] on [".static::class.'].');
+                }
+
+                $this->asgardInline[$region] = true;
+            }
+
+            if (count($this->asgardInline) > self::MAX_REFRESH) {
+                throw new InvalidArgumentException('An answer renders at most '.self::MAX_REFRESH.' other regions.');
+            }
+
+            return;
+        }
+
+        if (count($regions) > 1) {
+            throw new InvalidArgumentException('A refresh of another component names at most one region.');
+        }
+
+        $region = $regions[0] ?? null;
+
+        foreach (app(Asgard::class)->addresses($target, $region) as $address) {
+            // A hint for the whole component covers any for one region.
+            if (isset($this->asgardHints[$address])) {
+                continue;
+            }
+
+            $key = $region === null ? $address : $address.'#'.$region;
+
+            if ($region === null) {
+                foreach (array_keys($this->asgardHints) as $held) {
+                    if (str_starts_with($held, $address.'#')) {
+                        unset($this->asgardHints[$held]);
+                    }
+                }
+            }
+
+            $this->asgardHints[$key] = $region === null
+                ? ['component' => $address]
+                : ['component' => $address, 'region' => $region];
+        }
+
+        if (count($this->asgardHints) > self::MAX_REFRESH) {
+            throw new InvalidArgumentException('An answer carries at most '.self::MAX_REFRESH.' refresh hints.');
+        }
+    }
+
+    /**
+     * What refresh() collected: regions of this component to render
+     * inline, and hints for other components.
+     *
+     * @internal
+     *
+     * @return array{regions: list<string>, hints: list<array{component: string, region?: string}>}
+     */
+    final public function asgardRefreshes(): array
+    {
+        return [
+            'regions' => array_keys($this->asgardInline),
+            'hints' => array_values($this->asgardHints),
+        ];
     }
 
     /** The region being rendered. */

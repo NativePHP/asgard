@@ -201,8 +201,51 @@ The method follows the same rules as an action: public, non-static, declared
 on the registered class itself (or a trait it uses), not a `#[Region]`, and
 params limited to plain JSON types. `#[Action]` and `#[Server]` are separate
 allowlists, so an action cannot be called as a server method or the other
-way round. Nothing is rendered, so the answer carries no fragment. A device
-that wants a region redrawn after a call asks for it again.
+way round. Nothing is rendered unless the method asks for it with
+`refresh()`, below.
+
+### Redrawing other regions
+
+Inside an `#[Action]` or `#[Server]` method, `$this->refresh()` says which
+other regions need drawing again. There are three cases.
+
+**Same component, inline.** Name one or more regions of this component:
+
+```php
+#[Action]
+public function bump(): void
+{
+    Cache::increment('taps');
+
+    $this->refresh('greeting');
+}
+```
+
+The component is already hydrated with the request's state, so after the
+method runs those regions are rendered too, as the request's user, and go
+back in the same answer under `fragments`. An action still answers with its
+own region's fragment as always. Only the instance on the phone that sent the
+request paints them, and only if it drew those regions.
+
+**Other components on this phone, a hint.** Name a class or an address, and
+maybe one region. Leave the region out to mean all of them:
+
+```php
+$this->refresh(InboxScreen::class, 'unread');
+$this->refresh('app.native.screens.inbox');
+```
+
+The server does not have that component's state, so it does not render it.
+The answer carries a hint, and every live instance of it on the phone that
+drew the region fetches it again with its own state. One on a screen lower in
+the stack fetches when that screen is drawn again. The address and region are
+checked as `Asgard::push()` checks them, and an unknown one throws.
+
+**Other phones.** Use `Asgard::push()` or `Asgard::to()`, as before.
+`refresh()` only reaches the phone that sent the request.
+
+A name that is a region of this component always means that region. An
+answer renders at most 16 inline regions and carries at most 16 hints.
 
 ## Server screens
 
@@ -586,6 +629,14 @@ An action request adds `action`. `call` and `args` are both required.
  "action":{"call":"wave","args":[1]}}
 ```
 
+A device that wants several regions of one component and state asks for
+them in one request, with `regions` instead of `region`. It holds 1 to 16
+distinct names, and cannot carry an `action`:
+
+```json
+{"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon"},"platform":"ios"}
+```
+
 `component` is the client component's FQCN in dot notation with each segment
 snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
 `{"error":"invalid_request","message":"…"}`.
@@ -595,6 +646,26 @@ snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
 ```json
 {"protocol":1,"region":"greeting","fragment":{"type":"column","class":"p-4 gap-2","children":[{"type":"text","props":{"text":"Hello"}}]}}
 ```
+
+An action whose method called `refresh()` adds `fragments`, the other regions
+it rendered, and `refresh`, the hints. Each is left out when empty:
+
+```json
+{"protocol":1,"region":"stats","version":"…","fragment":{…},
+ "fragments":{"greeting":{"version":"q3V0bG9yZW1pcHN1","fragment":{…}}},
+ "refresh":[{"component":"app.native.screens.inbox","region":"unread"}]}
+```
+
+A `regions` request is answered with one part per region, keyed by region.
+Each part has the region's own `version`, its `fragment`, and `chrome` for a
+server screen:
+
+```json
+{"protocol":1,"fragments":{"greeting":{"version":"…","fragment":{…}},"stats":{"version":"…","fragment":{…}}}}
+```
+
+An answer is gzipped only when every region in it allows it. A batch or an
+action answer that includes a `compress: false` region is sent as it is.
 
 `fragment` is one node or a list of nodes:
 `{type, key?, props?, class?, on_press?, on_long_press?, on_double_tap?, on_change?, on_submit?, children?}`.
@@ -614,7 +685,7 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | --- | --- | --- |
 | 403 | `{"error":"forbidden",…}` | Digest, signature or decryption failed, the signature expired, or a nonce was replayed. Plain, unsigned. Do not retry. |
 | 403 | `{"error":"nonce_required"}` | An action whose signature has no nonce. |
-| 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare. Same body for both. |
+| 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare (any one of `regions`). Same body for both. |
 | 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[Action]` on the component, or the arg count doesn't fit it. |
 | 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`. |
 | 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
@@ -641,6 +712,10 @@ values with text the device chose.
 ```json
 {"protocol":1,"delta":{"result":4}}
 ```
+
+A method that called `refresh()` adds `fragments` and `refresh`, shaped as
+on an action's answer. The regions are rendered after the delta is worked
+out. The answer is still never gzipped.
 
 **Errors:** as render, except:
 

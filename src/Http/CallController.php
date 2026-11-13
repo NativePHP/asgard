@@ -5,14 +5,17 @@ namespace Native\Asgard\Http;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
+use Native\Asgard\Http\Concerns\RendersRegions;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\ActionInvoker;
 use Native\Asgard\Support\Callback;
 use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\Hydrator;
+use Native\Asgard\Support\PushVersions;
 use ReflectionObject;
 use ReflectionProperty;
 use UnexpectedValueException;
@@ -31,11 +34,19 @@ use UnexpectedValueException;
  * its own value has not moved since it sent the call.
  *
  * A call changes state, so its signature must carry a nonce, like an
- * action. Nothing is rendered: the answer has no fragment.
+ * action. Nothing is rendered unless the method calls refresh(). Regions of
+ * this component it names are rendered after the delta is worked out and
+ * travel in `fragments`, keyed by region. Other components it names travel
+ * as hints in `refresh`:
+ *
+ *     ← {"protocol":1,"delta":{"roll":4},
+ *        "fragments":{"stats":{"version":"…","fragment":{…}}},
+ *        "refresh":[{"component":"app.native.screens.inbox","region":"unread"}]}
  */
 class CallController
 {
     use ReadsAsgardRequests;
+    use RendersRegions;
 
     private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'platform'];
 
@@ -44,6 +55,8 @@ class CallController
     public function __construct(
         protected ComponentRegistry $registry,
         protected Container $container,
+        protected RegionViews $views,
+        protected PushVersions $versions,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -67,7 +80,8 @@ class CallController
             return response()->json(['error' => 'unknown_component'], 404);
         }
 
-        $spec = ComponentMetadata::for($class)->servers[$payload['method']] ?? null;
+        $metadata = ComponentMetadata::for($class);
+        $spec = $metadata->servers[$payload['method']] ?? null;
 
         if ($spec === null || ! ActionInvoker::accepts($spec, count($payload['args']))) {
             return response()->json(['error' => 'unknown_method'], 404);
@@ -79,6 +93,8 @@ class CallController
         try {
             Hydrator::hydrate($component, $payload['state']);
 
+            // From the state the device sent, as a render works them out.
+            $channels = $this->channelsOf($component);
             $before = $this->fingerprints($component);
 
             ActionInvoker::invoke($component, $payload['method'], $spec, $payload['args'], 'args');
@@ -96,10 +112,26 @@ class CallController
                 : response()->json(['error' => 'invalid_delta'], 500);
         }
 
-        return response()->json([
-            'protocol' => self::PROTOCOL,
-            'delta' => (object) $delta,
-        ], 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $answer = ['protocol' => self::PROTOCOL, 'delta' => (object) $delta];
+
+        $more = $this->refreshed($component, $metadata, $payload['component'], $channels, $payload['platform']);
+
+        if ($more instanceof JsonResponse) {
+            return $more;
+        }
+
+        if ($more['fragments'] !== []) {
+            $answer['fragments'] = $more['fragments'];
+        }
+
+        if ($more['refresh'] !== []) {
+            $answer['refresh'] = $more['refresh'];
+        }
+
+        // Never compressed, fragments or not: the delta can mix the
+        // server's values with text the device chose (§7.4).
+
+        return response()->json($answer, 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
     /**
