@@ -27,7 +27,13 @@ class ScreenRegistry
      */
     public const URI_PATTERN = '#^/$|^(/([A-Za-z0-9._~-]+|\{[A-Za-z_][A-Za-z0-9_]*\}))*(/([A-Za-z0-9._~-]+|\{[A-Za-z_][A-Za-z0-9_]*\??\}))$#D';
 
-    /** @var array<string, array{uri: string, class: class-string<ServerScreen>}> address => screen */
+    /** The longest route title template, in characters. */
+    public const TITLE_MAX = 100;
+
+    /** A `{name}` placeholder in a route title template. */
+    public const TITLE_PLACEHOLDER = '/\{([A-Za-z_][A-Za-z0-9_]*)\}/';
+
+    /** @var array<string, array{uri: string, class: class-string<ServerScreen>, title: ?string}> address => screen */
     protected array $screens = [];
 
     /** @param list<class-string<ServerScreen>> $screens */
@@ -60,6 +66,10 @@ class ScreenRegistry
             throw new InvalidArgumentException("Screen route [{$screen->uri}] on [{$class}] must be a path of literal and {param} segments, like /promos/{id}.");
         }
 
+        if ($screen->title !== null) {
+            self::checkTitle($screen->title, $uri, $class);
+        }
+
         $address = $screen->name ?? self::addressFor($class);
 
         foreach ($this->screens as $other => $entry) {
@@ -74,7 +84,7 @@ class ScreenRegistry
         }
 
         $this->components->component($address, $class);
-        $this->screens[$address] = ['uri' => $uri, 'class' => $class];
+        $this->screens[$address] = ['uri' => $uri, 'class' => $class, 'title' => $screen->title];
 
         return $this;
     }
@@ -92,15 +102,22 @@ class ScreenRegistry
     }
 
     /**
-     * The route list the device fetches, in registration order.
+     * The route list the device fetches, in registration order. `title`
+     * is there only for a screen that has one.
      *
-     * @return list<array{uri: string, screen: string}>
+     * @return list<array{uri: string, screen: string, title?: string}>
      */
     public function routes(): array
     {
         $routes = [];
         foreach ($this->screens as $address => $entry) {
-            $routes[] = ['uri' => $entry['uri'], 'screen' => $address];
+            $route = ['uri' => $entry['uri'], 'screen' => $address];
+
+            if ($entry['title'] !== null) {
+                $route['title'] = $entry['title'];
+            }
+
+            $routes[] = $route;
         }
 
         return $routes;
@@ -112,7 +129,26 @@ class ScreenRegistry
         return substr(hash('sha256', json_encode($this->routes(), JSON_UNESCAPED_SLASHES)), 0, 16);
     }
 
-    /** @return array<string, array{uri: string, class: class-string<ServerScreen>}> */
+    /**
+     * A title template is plain text the device shows as is: valid UTF-8, not
+     * blank, at most TITLE_MAX characters, no control characters, and only
+     * placeholders for parameters the route has.
+     */
+    protected static function checkTitle(string $title, string $uri, string $class): void
+    {
+        if (! mb_check_encoding($title, 'UTF-8') || trim($title) === '' || mb_strlen($title) > self::TITLE_MAX || preg_match('/\p{Cc}/u', $title) === 1) {
+            throw new InvalidArgumentException("Screen title on [{$class}] must be plain text of 1 to ".self::TITLE_MAX.' characters with no control characters.');
+        }
+
+        preg_match_all('/\{([A-Za-z_][A-Za-z0-9_]*)\??\}/', $uri, $params);
+        preg_match_all(self::TITLE_PLACEHOLDER, $title, $placeholders);
+
+        foreach (array_diff($placeholders[1], $params[1]) as $unknown) {
+            throw new InvalidArgumentException("Screen title on [{$class}] uses {{$unknown}}, which is not a parameter of [{$uri}].");
+        }
+    }
+
+    /** @return array<string, array{uri: string, class: class-string<ServerScreen>, title: ?string}> */
     public function all(): array
     {
         return $this->screens;

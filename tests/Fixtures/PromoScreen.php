@@ -12,7 +12,7 @@ use Native\Asgard\Chrome\TabBar;
 use Native\Asgard\Node;
 use Native\Asgard\ServerScreen;
 
-#[Screen('/promos/{id}', name: 'promos.show', shared: true)]
+#[Screen('/promos/{id}', name: 'promos.show', shared: true, title: 'Promo #{id}')]
 class PromoScreen extends ServerScreen
 {
     public static array $calls = [];

@@ -261,7 +261,7 @@ use Native\Asgard\Chrome\NavBar;
 use Native\Asgard\Node;
 use Native\Asgard\ServerScreen;
 
-#[Screen('/promos/{id}')]
+#[Screen('/promos/{id}', title: 'Promo #{id}')]
 class PromoScreen extends ServerScreen
 {
     public int $id;           // filled from the route parameter
@@ -302,6 +302,16 @@ shape: a server screen can add a route, never replace one.
   parameters, with an optional `{name?}` last.
 - `#[Screen('/uri', name: 'promos.show')]` sets the wire address. It
   defaults to the class name in dot notation.
+- `title: 'Promo #{id}'` gives the screen a nav bar title the device shows
+  the moment it opens, before any request. `{name}` placeholders are
+  filled from the route parameters, and each must name one. It is plain
+  text of at most 100 characters, with no control characters, and it is
+  shown as text, never as markup. The title from `chrome()` replaces it
+  when the body lands. Without a template the device shows a placeholder
+  ("Loading…" unless the app sets its own).
+- The title template travels in the route list, which every device
+  fetches, signed in or not. Never put anything private in it. Only the
+  route parameters are filled in, and that happens on the device.
 - Route parameters and the query string arrive as state. Public typed
   properties named after them are filled in, and numeric and boolean
   strings are converted to the property's type.
