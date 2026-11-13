@@ -61,20 +61,34 @@ class HomeScreen extends ServerComponent
 }
 ```
 
-Register it against the address of the CLIENT component, either in
+Register it against the address of the CLIENT component. The client
+component names its address with an attribute:
+
+```php
+#[ServerAddress('home')]
+class Home extends NativeComponent
+```
+
+and the server maps that address to its component, either in
 `config/asgard.php`:
 
 ```php
 'components' => [
-    'app.native.screens.home' => App\Asgard\HomeScreen::class,
+    'home' => App\Asgard\HomeScreen::class,
 ],
 ```
 
 or at boot:
 
 ```php
-Asgard::component('app.native.screens.home', HomeScreen::class);
+Asgard::component('home', HomeScreen::class);
 ```
+
+Without the attribute, the address is the client component's class name in
+dot notation, each segment snake-cased: `App\Native\Screens\Home` becomes
+`app.native.screens.home`. Naming it keeps the two sides from depending on
+the client's class name, so you can move or rename the class in the app
+without touching the server.
 
 A region method may return a `Node`, a list of `Node`s, plain arrays in the
 node shape, or a Blade view (see below). Region methods are resolved through the container, so they can
@@ -480,12 +494,12 @@ fetches the region through render with its own user. A region marked
 `shared: true` is sent inline instead.
 
 ```php
-Asgard::push('app.native.screens.home');            // every subscribed region
+Asgard::push('home');                     // every subscribed region
 Asgard::push(HomeScreen::class, 'stats');           // just the stats region
 ```
 
 ```sh
-php artisan asgard:push app.native.screens.home stats
+php artisan asgard:push home stats
 php artisan asgard:push 'App\Asgard\HomeScreen'
 ```
 
@@ -718,7 +732,8 @@ distinct names, and cannot carry an `action`:
 {"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon"},"platform":"ios"}
 ```
 
-`component` is the client component's FQCN in dot notation with each segment
+`component` is the address the client component named with
+`#[ServerAddress]`, or its FQCN in dot notation with each segment
 snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
 `{"error":"invalid_request","message":"…"}`.
 

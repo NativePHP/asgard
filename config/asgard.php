@@ -43,14 +43,16 @@ return [
     /*
     | Client component address => server component class.
     |
-    | The address is the CLIENT component's FQCN in dot notation, each
-    | segment snake-cased: App\Native\Screens\Home => app.native.screens.home
+    | The address is the one the CLIENT component names with
+    | #[ServerAddress('home')]. Without it, it is the client component's
+    | FQCN in dot notation, each segment snake-cased:
+    | App\Native\Screens\Home => app.native.screens.home
     |
     | This map, plus Asgard::component() calls at boot, is the only way an
     | address from the wire becomes a class.
     */
     'components' => [
-        // 'app.native.screens.home' => App\Asgard\HomeScreen::class,
+        // 'home' => App\Asgard\HomeScreen::class,
     ],
 
     /*
