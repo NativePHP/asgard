@@ -422,7 +422,7 @@ it('streams Blade regions', function () {
 
     $response = $this->asgardStream(streamBody(['component' => 'app.native.screens.blade', 'regions' => ['stats'], 'state' => ['name' => 'Simon']]));
 
-    $fragments = sseFragments($response->streamedContent());
+    $fragments = sseEvents($response->streamedContent());
 
     expect($fragments[0]['region'])->toBe('stats')
         ->and($fragments[0]['fragment']['children'][0]['props']['text'])->toBe('Hello, Simon');

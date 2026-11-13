@@ -10,6 +10,7 @@ use Native\Asgard\Blade\RegionEngine;
 use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\Console\KeyCommand;
 use Native\Asgard\Console\PushCommand;
+use Native\Asgard\Support\GuestGuard;
 use Native\Asgard\Support\PushVersions;
 use Native\Asgard\Support\SessionStore;
 use Native\Asgard\Support\StreamClock;
@@ -45,6 +46,10 @@ class AsgardServiceProvider extends ServiceProvider
         ));
 
         $this->app->singleton(StreamClock::class);
+
+        // The guard a stream renders shared regions under: nobody signed in.
+        $this->app['config']->set('auth.guards.'.GuestGuard::NAME, ['driver' => GuestGuard::NAME]);
+        $this->app->afterResolving('auth', fn ($auth) => $auth->extend(GuestGuard::NAME, fn () => new GuestGuard));
 
         // Region views get their own compiler, so the app's web views never
         // meet NativeTagPrecompiler. Built on first use, after the app has

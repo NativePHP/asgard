@@ -69,16 +69,18 @@ return [
     | Server-Sent Events at {path}/stream.
     |
     | Each open stream holds one PHP worker (an FPM child, say) for up to
-    | `lifetime` seconds. Size your pool for the number of devices you expect
-    | to keep a screen open, or send streams to their own pool. FPM's
+    | `lifetime` seconds, and a device opens one stream. Size your pool for
+    | the number of devices you expect to keep a server region on screen, or
+    | send streams to their own pool. FPM's
     | request_terminate_timeout must be longer than `lifetime`.
     |
-    | store:    cache store for push versions, channel ones included. Must
-    |           be shared by the process that calls Asgard::push() or
+    | store:    cache store for push versions, channel ones included, and
+    |           for shared regions' rendered answers. Must be shared by
+    |           the process that calls Asgard::push() or
     |           Asgard::to() and the workers holding streams, so not `array`.
     |           null means the default cache store.
     | lifetime: seconds before the server closes a stream. The client
-    |           reconnects and gets fresh fragments.
+    |           reconnects and hears about whatever changed meanwhile.
     | poll_ms:  how often each stream reads the push store.
     */
     'stream' => [

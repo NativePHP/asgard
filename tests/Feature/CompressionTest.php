@@ -70,7 +70,7 @@ it('marks each stream event with its coding, per region', function () {
     $this->app->instance(StreamClock::class, new FakeClock);
     config()->set('asgard.stream.lifetime', 1);
 
-    $content = $this->asgardStream(['protocol' => 1, 'component' => 'app.native.screens.rows', 'regions' => ['rows', 'private'], 'state' => [], 'platform' => 'ios'])
+    $content = $this->asgardStream(streamBody(['component' => 'app.native.screens.rows', 'regions' => ['rows', 'private'], 'state' => []]))
         ->assertOk()->streamedContent();
     [$rows, $private] = rawEvents($content);
     $stream = TestCase::$stream;

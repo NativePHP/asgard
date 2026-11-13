@@ -56,12 +56,12 @@ class Asgard
     }
 
     /**
-     * Tell every open stream for a component to re-render. With a region,
-     * only streams subscribed to that region re-render it.
+     * Tell every open stream watching a component to re-render it. With a
+     * region, only subscriptions to that region re-render it.
      *
      * Takes a registered address or a registered class. A class registered
      * under several addresses is pushed to all of them. Asgard::to() pushes
-     * to the streams in some channels only.
+     * to the subscriptions in some channels only.
      */
     public function push(string $component, ?string $region = null): void
     {
@@ -71,7 +71,7 @@ class Asgard
     }
 
     /**
-     * Push to the streams that joined these channels, through their
+     * Push to the subscriptions that joined these channels, through their
      * component's channels(). Takes channel names, models (named the way
      * Laravel broadcasting names them, App.Models.User.5) or lists of them.
      *

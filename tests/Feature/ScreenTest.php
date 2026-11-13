@@ -138,9 +138,9 @@ it('sends chrome with each pushed screen event', function () {
     $this->app->instance(StreamClock::class, $clock);
     $clock->onSleep[1] = fn () => Asgard::push(PromoScreen::class);
 
-    $content = $this->asgardStream([
-        'protocol' => 1, 'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'], 'platform' => 'android',
-    ])->assertOk()->streamedContent();
+    $content = $this->asgardStream(streamBody([
+        'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'], 'platform' => 'android',
+    ]))->assertOk()->streamedContent();
 
     $events = array_values(array_filter(sseBlocks($content), 'is_array'));
 
@@ -346,9 +346,9 @@ it('streams a Blade screen with its chrome', function () {
     config()->set('asgard.stream.lifetime', 1);
     $this->app->instance(StreamClock::class, new FakeClock);
 
-    $content = $this->asgardStream([
-        'protocol' => 1, 'component' => 'blade_promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'], 'platform' => 'ios',
-    ])->assertOk()->streamedContent();
+    $content = $this->asgardStream(streamBody([
+        'component' => 'blade_promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'],
+    ]))->assertOk()->streamedContent();
 
     $event = array_values(array_filter(sseBlocks($content), 'is_array'))[0]['data'];
 

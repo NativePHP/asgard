@@ -6,7 +6,7 @@ use Illuminate\Contracts\Broadcasting\HasBroadcastChannel;
 use InvalidArgumentException;
 
 /**
- * Channel names for targeted pushes. A stream joins channels through its
+ * Channel names for targeted pushes. A stream subscription joins channels through its
  * component's channels(), and Asgard::to() pushes to them.
  *
  * A channel is a string of 1 to 200 characters with no control characters,

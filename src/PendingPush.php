@@ -6,9 +6,9 @@ use InvalidArgumentException;
 use Native\Asgard\Support\PushVersions;
 
 /**
- * A push aimed at some channels, from Asgard::to(). Only streams that joined
- * one of the channels re-render, and each re-renders with its own state and
- * its own user, as with any push.
+ * A push aimed at some channels, from Asgard::to(). Only stream
+ * subscriptions that joined one of the channels re-render, and each
+ * re-renders with its own state and its stream's user, as with any push.
  */
 class PendingPush
 {
@@ -20,8 +20,8 @@ class PendingPush
     ) {}
 
     /**
-     * With no component, every stream in the channels re-renders, whatever
-     * its component. With a component, only that component's streams do,
+     * With no component, every subscription in the channels re-renders,
+     * whatever its component. With a component, only that component's do,
      * and with a region as well, only that region.
      *
      * The component and region are checked as Asgard::push() checks them.

@@ -19,7 +19,9 @@ use Attribute;
  * dot notation, the way client components are addressed (protocol §4).
  *
  * `compress: false` turns off gzip for the screen's answers, for the same
- * reason #[Region] has it (protocol §7.4).
+ * reason #[Region] has it (protocol §7.4). `shared: true` is #[Region]'s
+ * too: the screen renders the same for everyone with the same state, so a
+ * push sends it inline (protocol §8.1).
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final class Screen
@@ -28,5 +30,6 @@ final class Screen
         public string $uri,
         public ?string $name = null,
         public bool $compress = true,
+        public bool $shared = false,
     ) {}
 }

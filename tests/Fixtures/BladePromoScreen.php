@@ -9,7 +9,7 @@ use Native\Asgard\Chrome\Chrome;
 use Native\Asgard\Chrome\NavBar;
 use Native\Asgard\ServerScreen;
 
-#[Screen('/blade-promos/{id}', name: 'blade_promos.show')]
+#[Screen('/blade-promos/{id}', name: 'blade_promos.show', shared: true)]
 class BladePromoScreen extends ServerScreen
 {
     public int $id = 0;

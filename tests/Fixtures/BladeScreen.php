@@ -14,7 +14,7 @@ class BladeScreen extends ServerComponent
 
     public int $count = 0;
 
-    #[Region('stats')]
+    #[Region('stats', shared: true)]
     public function stats(): View
     {
         return view('regions.stats', ['items' => ['a', 'b']]);

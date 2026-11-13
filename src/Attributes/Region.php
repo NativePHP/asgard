@@ -13,6 +13,14 @@ use Attribute;
  * with text someone else can choose (a search term, a name they set). A
  * compressed body of that shape leaks the secret through its length, the
  * way BREACH does. Protocol §7.4.
+ *
+ * `shared: true` marks a region that renders the same for everyone with the
+ * same state. When a push moves it, the push stream sends its fragment
+ * inline, rendered once for every device with that state, instead of a
+ * signal that makes each device fetch it (protocol §8.1). On the stream it
+ * renders with no authenticated user, so it must not depend on the user or
+ * hold secrets. That also makes compressing it safe. Leave it off when in
+ * doubt: a region that is not shared costs a round trip, never a leak.
  */
 #[Attribute(Attribute::TARGET_METHOD)]
 final class Region
@@ -20,5 +28,6 @@ final class Region
     public function __construct(
         public string $name,
         public bool $compress = true,
+        public bool $shared = false,
     ) {}
 }

@@ -25,6 +25,7 @@ use ReflectionUnionType;
  *             ServerScreen has exactly one, `screen` => `render`, and may
  *             not declare any other.
  * uncompressed: names of regions declared with compress: false.
+ * shared:     names of regions declared with shared: true.
  * properties: property name => allowed builtin types, for public,
  *             non-static, non-readonly, typed, unlocked properties declared
  *             on the class itself.
@@ -43,6 +44,7 @@ final class ComponentMetadata
     /**
      * @param  array<string, string>  $regions
      * @param  list<string>  $uncompressed
+     * @param  list<string>  $shared
      * @param  array<string, array{types: list<string>, nullable: bool}>  $properties
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
      */
@@ -51,11 +53,18 @@ final class ComponentMetadata
         public readonly array $properties,
         public readonly array $actions = [],
         public readonly array $uncompressed = [],
+        public readonly array $shared = [],
     ) {}
 
     public function compresses(string $region): bool
     {
         return ! in_array($region, $this->uncompressed, true);
+    }
+
+    /** Whether the stream sends this region's fragment inline, rendered as a guest. */
+    public function shares(string $region): bool
+    {
+        return in_array($region, $this->shared, true);
     }
 
     /** @param class-string<ServerComponent> $class */
@@ -78,6 +87,7 @@ final class ComponentMetadata
 
         $regions = [];
         $uncompressed = [];
+        $shared = [];
         foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
             if ($method->isStatic() || $method->getDeclaringClass()->getName() !== $class) {
                 continue;
@@ -96,6 +106,10 @@ final class ComponentMetadata
                 if (! $region->compress) {
                     $uncompressed[] = $name;
                 }
+
+                if ($region->shared) {
+                    $shared[] = $name;
+                }
             }
         }
 
@@ -109,6 +123,10 @@ final class ComponentMetadata
 
             if ($screen !== null && ! $screen->newInstance()->compress) {
                 $uncompressed[] = ServerScreen::REGION;
+            }
+
+            if ($screen !== null && $screen->newInstance()->shared) {
+                $shared[] = ServerScreen::REGION;
             }
         }
 
@@ -176,7 +194,7 @@ final class ComponentMetadata
             }
         }
 
-        return new self($regions, $properties, $actions, $uncompressed);
+        return new self($regions, $properties, $actions, $uncompressed, $shared);
     }
 
     /** Types an action parameter may declare. Everything else refuses the action. */

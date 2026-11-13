@@ -12,13 +12,13 @@ class RowsScreen extends ServerComponent
 {
     public int $count = 200;
 
-    #[Region('rows')]
+    #[Region('rows', shared: true)]
     public function rows(): array
     {
         return $this->build('Row');
     }
 
-    #[Region('private', compress: false)]
+    #[Region('private', compress: false, shared: true)]
     public function private(): array
     {
         return $this->build('Account');

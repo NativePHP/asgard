@@ -34,7 +34,7 @@ function channelBody(array $overrides = []): array
 /** @return list<array{string, string}> */
 function idsAndRegions(string $content): array
 {
-    return array_map(fn ($e) => [$e['id'], $e['region']], sseFragments($content));
+    return array_map(fn ($e) => [$e['id'], $e['region']], sseEvents($content));
 }
 
 it('joins channels worked out from the stream state', function () {
@@ -47,6 +47,50 @@ it('joins channels worked out from the stream state', function () {
     ]);
 });
 
+it('works out the channels of each subscription from its own state', function () {
+    $this->clock->onSleep[1] = fn () => Asgard::to('promo.7')->push();
+    $this->clock->onSleep[2] = fn () => Asgard::to('promo.42')->push(ChannelScreen::class, 'body');
+
+    $events = sseEvents($this->asgardStream(streamBody([], [
+        subscription(['id' => 'p42', 'component' => 'app.native.screens.channel', 'regions' => ['title', 'body'], 'state' => ['promo' => 42]]),
+        subscription(['id' => 'p7', 'component' => 'app.native.screens.channel', 'regions' => ['title', 'body'], 'state' => ['promo' => 7]]),
+    ]))->streamedContent());
+
+    expect(array_map(fn ($e) => [$e['id'], $e['subscription'], $e['region']], $events))->toBe([
+        ['0', 'p42', 'title'], ['0', 'p42', 'body'], ['0', 'p7', 'title'], ['0', 'p7', 'body'],
+        ['1', 'p7', 'title'], ['1', 'p7', 'body'],
+        ['2', 'p42', 'body'],
+    ]);
+    expect(array_unique(array_column($events, 'event')))->toBe(['signal']);
+});
+
+it('renders a shared region as a guest on the stream, and with the user on render', function () {
+    $user = (new User)->forceFill(['id' => 5]);
+    $this->actingAs($user);
+
+    $this->clock->onSleep[1] = fn () => Asgard::to('user.5')->push(ChannelScreen::class, 'viewer');
+
+    $events = sseEvents($this->asgardStream(channelBody(['regions' => ['viewer']]))->streamedContent());
+
+    expect(array_column($events, 'event'))->toBe(['fragment', 'fragment'])
+        ->and(array_column(array_column(array_column($events, 'fragment'), 'props'), 'text'))->toBe([
+            'Viewer guest / none of promo 42',
+            'Viewer guest / none of promo 42',
+        ]);
+
+    // The user is back once the shared render is done.
+    expect(auth()->id())->toBe(5);
+
+    // Render is not the stream: it renders with the user, as always.
+    $this->asgard(asgardBody(['component' => 'app.native.screens.channel', 'region' => 'viewer', 'state' => ['promo' => 42]]))
+        ->assertOk()
+        ->assertJsonPath('fragment.props.text', 'Viewer 5 / 5 of promo 42');
+
+    // A region that is not shared is only signalled, so it never renders on the stream.
+    $events = sseEvents($this->asgardStream(channelBody(['regions' => ['title']]))->streamedContent());
+    expect(array_column($events, 'event'))->toBe(['signal']);
+});
+
 it('joins channels from the authenticated user, by name and by model', function () {
     $user = (new User)->forceFill(['id' => 5]);
     $this->actingAs($user);
@@ -55,24 +99,22 @@ it('joins channels from the authenticated user, by name and by model', function 
     $this->clock->onSleep[2] = fn () => Asgard::to('user.5')->push(ChannelScreen::class, 'title');
     $this->clock->onSleep[3] = fn () => Asgard::to($user)->push('app.native.screens.channel', 'body');
 
-    $events = sseFragments($this->asgardStream(channelBody())->streamedContent());
+    $events = sseEvents($this->asgardStream(channelBody())->streamedContent());
 
     expect(array_map(fn ($e) => [$e['id'], $e['region']], $events))->toBe([
         ['0', 'title'], ['0', 'body'],
         ['1', 'title'],
         ['2', 'body'],
     ]);
-    expect($events[2]['fragment']['props']['text'])->toBe('Promo 42 for 5');
 });
 
 it('does not join user channels without an authenticated user', function () {
     $this->clock->onSleep[1] = fn () => Asgard::to('user.')->push();
     $this->clock->onSleep[2] = fn () => Asgard::to((new User)->forceFill(['id' => 5]))->push();
 
-    $events = sseFragments($this->asgardStream(channelBody())->streamedContent());
+    $events = sseEvents($this->asgardStream(channelBody())->streamedContent());
 
     expect($events)->toHaveCount(2);
-    expect($events[0]['fragment']['props']['text'])->toBe('Promo 42 for guest');
 });
 
 it('names a model channel the way Laravel broadcasting does', function () {
@@ -126,7 +168,7 @@ it('joins no channels by default', function () {
     $this->clock->onSleep[1] = fn () => Asgard::to('promo.0')->push();
     $this->clock->onSleep[2] = fn () => Asgard::to('promo.0')->push(HomeScreen::class);
 
-    expect(sseFragments($this->asgardStream(streamBody())->streamedContent()))->toHaveCount(2);
+    expect(sseEvents($this->asgardStream(streamBody())->streamedContent()))->toHaveCount(2);
 });
 
 it('refuses bad channel pushes', function (Closure $push) {

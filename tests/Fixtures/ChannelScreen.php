@@ -37,4 +37,11 @@ class ChannelScreen extends ServerComponent
     {
         return Node::text('Body');
     }
+
+    /** Shared, so on the stream it must render as a guest. */
+    #[Region('viewer', shared: true)]
+    public function viewer(): Node
+    {
+        return Node::text('Viewer '.(auth()->id() ?? 'guest').' / '.(request()->user()?->getAuthIdentifier() ?? 'none')." of promo {$this->promo}");
+    }
 }

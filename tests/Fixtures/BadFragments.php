@@ -32,6 +32,12 @@ class BadFragments extends ServerComponent
         return 'not a node';
     }
 
+    #[Region('shared_garbage', shared: true)]
+    public function sharedGarbage(): string
+    {
+        return 'not a node';
+    }
+
     public string|int|bool|array|null $callback = null;
 
     #[Region('callback')]

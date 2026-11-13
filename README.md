@@ -318,9 +318,11 @@ would make.
 
 ## Pushing fresh fragments (Server-Sent Events)
 
-A device can hold a stream open for the regions on screen. When something
-changes on the server, push the component and every open stream for it
-re-renders and sends the new fragments.
+A device holds one stream open for every server region it has on screen.
+When something changes on the server, push the component and every stream
+watching it tells its device. By default that is a signal, and the device
+fetches the region through render with its own user. A region marked
+`shared: true` is sent inline instead.
 
 ```php
 Asgard::push('app.native.screens.home');            // every subscribed region
@@ -336,15 +338,54 @@ php artisan asgard:push 'App\Asgard\HomeScreen'
 under several addresses is pushed to all of them). An unknown component, or a
 region that is not a `#[Region]` on it, throws `InvalidArgumentException`.
 
+The stream carries a subscription per component instance on screen: its
+address, its regions and the state they were rendered for. Two screens of one
+route with different parameters (`/promos/1` under `/promos/2`) are two
+subscriptions, and each gets its own pushes. The device sends the whole set
+each time it changes, and drops instances that are gone, so the stream reopens
+on navigation.
+
 A push only bumps a counter in a cache store. Each stream polls that store and
-re-renders the regions whose counters moved. Every re-render is a fresh
-component hydrated from the state the device sent when it connected, under the
-same rules as render. Nothing is personalised beyond that state, so the same
-"treat every region as public" rule applies.
+sends a `signal` for each region whose counters moved: the region and its new
+version, nothing rendered. The device fetches it with a normal render request,
+so it gets the region exactly as render would give it, user and all.
+
+### Shared regions
+
+```php
+#[Region('likes', shared: true)]
+public function likes(): Node { ... }
+
+#[Screen('/promos/{id}', shared: true)]
+class PromoScreen extends ServerScreen { ... }
+```
+
+A shared region renders the same for everyone with the same state. For those
+the stream sends a `fragment` event with the new fragment in it, so devices
+skip the round trip. It is rendered once per address, region, platform, state
+and version, by the first stream that needs it, and kept in the push store for
+60 seconds for every other stream to reuse. Each stream still seals it for its
+own session.
+
+The cache key has no user in it, so a shared region renders on the stream with
+nobody signed in: `auth()`, the default guard and `$request->user()` all see a
+guest. A shared region must not depend on the user or on secrets (and must not
+name a guard of its own to get round that). Because it holds nothing private,
+compressing it is safe. On the render endpoint a shared region renders as
+usual, with the user.
+
+The default is a signal, so a region you forgot to mark costs a round trip,
+never a leak.
+
+Render answers carry a `version` token per region, worked out from the
+counters that region watches. The device sends it back when it subscribes,
+and the stream only signals (or sends) regions whose token has moved since. So reopening the stream on every navigation does not re-render every
+region on screen.
 
 **Cost:** each open stream holds one PHP worker (an FPM child, an Octane
-worker…) for up to `asgard.stream.lifetime` seconds. A hundred devices on a
-streamed screen means a hundred busy workers. Size the pool for it, or route
+worker…) for up to `asgard.stream.lifetime` seconds. That is one worker per
+device with server regions on screen, so a hundred such devices means a
+hundred busy workers. Size the pool for it, or route
 `{path}/stream` to its own pool. FPM's `request_terminate_timeout` must be
 longer than the lifetime, and the push store must be shared between the
 process that pushes and the workers holding streams (Redis, database, file on
@@ -389,20 +430,21 @@ php artisan asgard:push --to=user.5 --to=user.9
 php artisan asgard:push 'App\Asgard\PromoScreen' screen --to=promo.42
 ```
 
-- `channels()` runs once when a stream opens, on a component hydrated from
-  the stream's state, after the app's middleware. So `auth()` sees the
+- `channels()` runs once per subscription when a stream opens, on a
+  component hydrated from that subscription's state, after the app's
+  middleware. Render calls it too, to work out the region's version token. So `auth()` sees the
   request's user. The default is no channels.
 - A channel is a string of 1 to 200 bytes with no control characters, or an
   Eloquent model (any `HasBroadcastChannel`), named the way Laravel
   broadcasting names it: `App.Models.User.5`. Repeats are dropped, and a
-  stream joins at most 16.
+  subscription joins at most 16.
 - A bad `channels()` answer is a bug in the app. With `app.debug` on, the
   stream request fails with the exception. In production the problem is
-  reported, the bad entries are dropped and the stream keeps the first 16
-  good channels. It still opens and still gets pushes to everyone.
+  reported, the bad entries are dropped and the subscription keeps the first
+  16 good channels. It still opens and still gets pushes to everyone.
 - `to()` takes names, models or lists of them. The component and region are
   checked as `push()` checks them, and a region needs a component.
-- A stream for a component in a joined channel re-renders a region when the
+- A subscription for a component in a joined channel re-renders a region when the
   channel, the channel and component, or the channel, component and region is
   pushed. Pushes to everyone still arrive as before.
 
@@ -416,16 +458,14 @@ with auth middleware such as `auth:sanctum` on the Asgard routes through
 `asgard.middleware`. Never build a user channel from a public prop, and check
 `auth()->check()` first so a guest does not join `user.`.
 
-A push carries no data. Each stream re-renders with its own state and its own
-user, so a channel push cannot leak one user's fragment to another. Your
+A push carries no data. Each subscription re-renders with its own state and
+the stream's user, so a channel push cannot leak one user's fragment to another. Your
 render code still has to authorize what it shows, exactly as it does for a
 normal render.
 
 Limits:
 
-- The device keeps one stream per component address. A screen covered by
-  another of the same route misses pushes until it is back on top. It
-  re-fetches when it comes back.
+- A stream carries at most 16 subscriptions, each of 1 to 16 regions.
 - A stream works out its channels once. It does not notice a changed bearer
   token (a sign-in, a sign-out, another user) until it reopens, at the latest
   after `asgard.stream.lifetime` seconds.
@@ -555,17 +595,30 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 **Endpoint:** `{base}/_asgard/stream`, in the same two forms as render
 (`QUERY`, or `POST` with `X-Asgard-Method: QUERY`).
 
-**Request body:** like render, but `regions` (1 to 16 distinct region names)
-instead of `region`, and no `action`:
+**Request body:** the device's platform and 1 to 16 subscriptions, one per
+component instance on screen. No `action`.
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon"},"platform":"ios"}
+{"protocol":1,"platform":"ios","subscriptions":[
+ {"id":"3f9a0c1d2e4b5a6c","component":"app.native.screens.home","regions":["greeting","stats"],
+  "state":{"name":"Simon"},"versions":{"greeting":"q3V0bG9yZW1pcHN1"}}]}
 ```
 
+- `id` is the device's own name for the subscription: 1 to 32 characters of
+  `A-Z a-z 0-9 _ -`, unique within the request. Events name it.
+- `regions` is 1 to 16 distinct region names, checked as render checks one.
+- `state` is checked and hydrated as render's is, separately per subscription.
+- `versions` is optional. It maps a region to the `version` token the device
+  holds for it, from a render answer or an earlier event.
+
 Everything is checked before the stream starts, and failures are the same JSON
-errors as render: 405, 422 (bad body, bad `regions`, an `action` key, state
+errors as render: 405, 422 (bad body, bad subscriptions, an `action` key, state
 that doesn't fit), 404 `unknown_component` (unknown component, or any region
-it doesn't declare), 500 `invalid_fragment`.
+it doesn't declare, in any subscription), 500 `invalid_fragment`.
+
+Render answers carry the token too, next to `region`:
+`{"protocol":1,"region":"greeting","version":"q3V0bG9yZW1pcHN1","fragment":{…}}`.
+It is opaque, up to 64 characters of `A-Z a-z 0-9 _ -`.
 
 **Response 200:** `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
 `X-Accel-Buffering: no`. The body:
@@ -574,12 +627,12 @@ it doesn't declare), 500 `invalid_fragment`.
 retry: 3000
 
 id: 0
-event: fragment
-data: {"body":"<base64url aes128gcm>","enc":"gzip","sig":"<base64url hmac>"}
+event: signal
+data: {"body":"<base64url aes128gcm>","enc":"identity","sig":"<base64url hmac>"}
 
 id: 0
 event: fragment
-data: {"body":"…","enc":"identity","sig":"…"}
+data: {"body":"…","enc":"gzip","sig":"…"}
 
 : ping
 
@@ -590,22 +643,32 @@ data: {"body":"…","enc":"identity","sig":"…"}
 ```
 
 Each `body` decrypts with `enc_s`, then gunzips when `enc` is `gzip`, to
-`{"protocol":1,"region":"stats","fragment":{...}}`. `sig` is HMAC-SHA256 with
+`{"protocol":1,"subscription":"3f9a0c1d2e4b5a6c","region":"stats","version":"…"}`
+for a signal, plus `fragment` (and `chrome` for a server screen) for a shared
+region's fragment event. `sig` is HMAC-SHA256 with
 `sig_s` over `asgard/1 event`, the stream request's signature in base64, the
 event id, the event name, `enc` and `body`, one per line. An event only
 verifies on the stream it was sent on.
 
-- One `fragment` event per region on connect, in the order asked for.
-- After that, a `fragment` event for each region a push touched.
-- `: ping` every 15 seconds.
-- `id` is the sum of the push counters the stream watches (its component,
-  its subscribed regions and its channels), so it only goes up while the store keeps its keys. It is
-  informational. A reconnect with `Last-Event-ID` still gets every region's
-  current fragment first.
+- On connect, one event per region whose current token differs from the one
+  the device sent (or that it sent none for), in the order asked for.
+- After that, one event for each region a push touched, in every
+  subscription it touched.
+- The event is `signal` for a region that is not shared. Its body is
+  `{"protocol":1,"subscription":…,"region":…,"version":…}`, never compressed,
+  and it is signed with `signal` as the event name. The device fetches the
+  region through render unless it already holds that version.
+- The event is `fragment` for a shared region, with the fragment (and chrome)
+  in the body.
+- `: ping` every 5 seconds. PHP only notices a gone client when it writes, so
+  this is also how soon a dead connection gives its worker back.
+- `id` is the sum of the push counters the stream watches, so it only goes
+  up while the store keeps its keys. It is informational. `Last-Event-ID` is
+  ignored; tokens decide what is sent on connect.
 - The server closes the stream after `asgard.stream.lifetime` seconds or
   when the client goes away. Reconnect after `retry`.
-- If a re-render throws or returns a bad fragment, it is reported and that
-  region is skipped. The device keeps its last fragment.
+- If a shared region's render throws or returns a bad fragment, it is
+  reported and that region is skipped. The device keeps its last fragment.
 
 ## Security rules
 
@@ -632,9 +695,10 @@ verifies on the stream it was sent on.
   `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are
   rejected. Props keys starting `_`, `native-` or `native:` are stripped.
   Unknown node fields are rejected.
-- The stream endpoint applies the same checks as render to every region it
-  is asked for, before any output. Re-renders use a fresh component hydrated
-  from the original state. Pushes come only from server code.
+- The stream endpoint applies the same checks as render to every region of
+  every subscription, before any output. It renders only shared regions, on
+  a fresh component hydrated from the subscription's state, with nobody
+  signed in. Everything else is a signal and is rendered by render. Pushes come only from server code.
 - Channels come only from the component's `channels()` on the server. They
   are as private as what they are built from, so private channels must come
   from the authenticated user, never from state.

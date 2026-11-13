@@ -23,22 +23,24 @@ function actionBody(array $action, array $overrides = []): array
 }
 
 it('runs a marked action and renders the region it changed', function () {
-    $this->asgard(actionBody(['call' => 'shuffle', 'args' => [3, '!']]))
-        ->assertOk()
-        ->assertExactJson([
-            'protocol' => 1,
-            'region' => 'greeting',
-            'fragment' => [
-                'type' => 'column',
-                'class' => 'p-4 gap-2',
-                'children' => [
-                    ['type' => 'text', 'key' => 'hello', 'props' => ['text' => 'Hello, Simon!']],
-                    ['type' => 'text', 'props' => ['text' => 'Role: guest']],
-                    ['type' => 'text', 'props' => ['text' => 'Count: 5']],
-                    ['type' => 'text', 'props' => ['text' => 'Platform: ios']],
-                ],
+    $response = $this->asgard(actionBody(['call' => 'shuffle', 'args' => [3, '!']]))->assertOk();
+
+    expect($response->json('version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
+    $response->assertExactJson([
+        'protocol' => 1,
+        'version' => $response->json('version'),
+        'region' => 'greeting',
+        'fragment' => [
+            'type' => 'column',
+            'class' => 'p-4 gap-2',
+            'children' => [
+                ['type' => 'text', 'key' => 'hello', 'props' => ['text' => 'Hello, Simon!']],
+                ['type' => 'text', 'props' => ['text' => 'Role: guest']],
+                ['type' => 'text', 'props' => ['text' => 'Count: 5']],
+                ['type' => 'text', 'props' => ['text' => 'Platform: ios']],
             ],
-        ]);
+        ],
+    ]);
 
     expect(HomeScreen::$calls)->toBe(['shuffle']);
 });
