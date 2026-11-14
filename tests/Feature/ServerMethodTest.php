@@ -27,10 +27,14 @@ it('runs a #[Server] method and answers with only the props it changed', functio
     expect(ServerMethodScreen::$calls)->toBe(['refreshChart']);
 });
 
-it('ignores a platform member from an older client, and reads the one in state', function () {
-    $this->asgard(callBody(['platform' => 'web']), 'QUERY', [], 'call')
+it('reads the platform from state', function () {
+    $this->asgard(callBody(), 'QUERY', [], 'call')
         ->assertOk()
         ->assertJsonPath('delta.chart', ['30d', 'ios']);
+});
+
+it('refuses a top-level platform, like any unknown member', function () {
+    $this->asgard(callBody(['platform' => 'ios']), 'QUERY', [], 'call')->assertStatus(422);
 });
 
 it('runs over POST with the method header', function () {

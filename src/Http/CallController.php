@@ -47,12 +47,8 @@ class CallController
     use ReadsAsgardRequests;
     use RendersRegions;
 
-    /**
-     * `platform` is no longer part of the protocol. Older clients still send
-     * it, and the changelog says servers ignore it, so it is let through
-     * here and never read. Any other unknown member is refused (§5.3).
-     */
-    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'platform'];
+    /** Any other member is refused (§5.3). */
+    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state'];
 
     public function __construct(
         protected ComponentRegistry $registry,

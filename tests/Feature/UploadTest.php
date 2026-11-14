@@ -59,8 +59,8 @@ it('hands the file to an #[Upload] method and answers with the delta', function 
         ->and($call['bytes'])->toBe(png());
 });
 
-it('ignores a platform member from an older client', function () {
-    $this->asgard(uploadFrame(['platform' => 'web']), 'QUERY', [], 'upload')->assertOk();
+it('refuses a top-level platform, like any unknown member', function () {
+    $this->asgard(uploadFrame(['platform' => 'ios']), 'QUERY', [], 'upload')->assertStatus(422);
 });
 
 it('runs over POST with the method header', function () {

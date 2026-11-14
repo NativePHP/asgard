@@ -58,8 +58,8 @@ class UploadController
     /** The largest header a frame may carry. State rides in it. */
     public const HEADER_MAX = 1024 * 1024;
 
-    /** `platform` is let through and never read, as CallController says. */
-    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'platform', 'filename', 'mime', 'size'];
+    /** Any other member is refused (§5.3). */
+    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'filename', 'mime', 'size'];
 
     public function __construct(
         protected ComponentRegistry $registry,
