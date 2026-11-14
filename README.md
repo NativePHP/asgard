@@ -4,7 +4,7 @@ The server half of Asgard, NativePHP's server-driven UI protocol. A NativePHP
 mobile app marks regions with `@server('greeting') … @endserver`, sends its
 state here, and paints the native elements this package returns.
 
-The protocol itself is described in `docs/ASGARD-PROTOCOL.md` in mobile-air.
+The protocol itself is at [NativePHP/asgard-protocol](https://github.com/NativePHP/asgard-protocol).
 This package implements a v0 walking skeleton of it.
 
 Every request and response is signed and encrypted (protocol §6 and §7), and
