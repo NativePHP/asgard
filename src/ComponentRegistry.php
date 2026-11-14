@@ -12,7 +12,7 @@ use InvalidArgumentException;
 class ComponentRegistry
 {
     /** Dot-joined segments, each starting with a letter (Asgard protocol §4). */
-    public const ADDRESS_PATTERN = '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/D';
+    public const ADDRESS_PATTERN = '/^[a-z][a-z0-9_-]*(\.[a-z][a-z0-9_-]*)*$/D';
 
     /** @var array<string, class-string<ServerComponent>> */
     protected array $components = [];
@@ -29,7 +29,7 @@ class ComponentRegistry
     public function component(string $address, string $class): static
     {
         if (! preg_match(self::ADDRESS_PATTERN, $address)) {
-            throw new InvalidArgumentException("Asgard address [{$address}] must be dot notation with snake_case segments.");
+            throw new InvalidArgumentException("Asgard address [{$address}] must be dot notation, each segment a lower-case letter followed by letters, digits, underscores or hyphens.");
         }
 
         // Developer-authored input, so checking the class here is fine.
