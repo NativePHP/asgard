@@ -31,7 +31,7 @@ final class FragmentValidator
         'top_bar', 'top_bar_action', 'top_bar_title',
         'bottom_nav', 'bottom_nav_item', 'bottom_bar',
         'side_nav', 'side_nav_item', 'side_nav_group', 'side_nav_header',
-        'fab', 'server_region',
+        'native_drawer', 'fab', 'server_region',
     ];
 
     public const CALLBACKS = ['on_press', 'on_long_press', 'on_double_tap', 'on_change', 'on_submit'];
