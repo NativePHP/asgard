@@ -13,6 +13,7 @@ use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\Console\KeyCommand;
 use Native\Asgard\Console\PushCommand;
 use Native\Asgard\Http\MethodNotAllowed;
+use Native\Asgard\Support\ConfiguredHeaders;
 use Native\Asgard\Support\GuestGuard;
 use Native\Asgard\Support\PushVersions;
 use Native\Asgard\Support\SessionStore;
@@ -97,12 +98,13 @@ class AsgardServiceProvider extends ServiceProvider
 
         // A verb the routes do not list at all still gets the protocol's 405
         // body on an Asgard endpoint, not the framework's (Asgard protocol §7.3).
+        // No route matched, so asgard.headers are added here.
         $this->callAfterResolving(ExceptionHandler::class, function ($handler) {
             if (method_exists($handler, 'renderable')) {
                 $handler->renderable(fn (MethodNotAllowedHttpException $e, Request $request) => match (MethodNotAllowed::endpoint($request)) {
                     null => null,
-                    'session' => MethodNotAllowed::response(MethodNotAllowed::SESSION_ALLOW),
-                    default => MethodNotAllowed::response(MethodNotAllowed::ALLOW),
+                    'session' => ConfiguredHeaders::apply(MethodNotAllowed::response(MethodNotAllowed::SESSION_ALLOW)),
+                    default => ConfiguredHeaders::apply(MethodNotAllowed::response(MethodNotAllowed::ALLOW)),
                 });
             }
         });

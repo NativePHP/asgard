@@ -45,7 +45,7 @@ return [
     | Client component address => server component class.
     |
     | The address is the one the CLIENT component names with
-    | #[ServerAddress('home')]. Without it, it is the client component's
+    | #[EntangleWith('home')]. Without it, it is the client component's
     | FQCN in dot notation, each segment snake-cased:
     | App\Native\Screens\Home => app.native.screens.home
     |
@@ -132,6 +132,48 @@ return [
     'blade' => [
         'compiled' => env('ASGARD_BLADE_COMPILED'),
         'elements' => [],
+    ],
+
+    /*
+    | Extra keys added to the delta of every answer that carries one: a
+    | #[Server] call or an upload. They go every time, changed or not. The
+    | client keeps a key only where its component has a public prop of that
+    | name, and ignores the rest.
+    |
+    | Keys are property names: letters, digits and underscores, not starting
+    | with a digit. Values are null, bools, finite numbers, UTF-8 strings or
+    | arrays of those. A value may also be a callable, called with no
+    | arguments each time an answer is built. Use
+    | [SomeClass::class, 'staticMethod'] rather than a closure, because a
+    | closure here stops `php artisan config:cache` working. A bad key or
+    | value throws.
+    |
+    | A component's own public prop or #[Computed] of the same name wins.
+    |
+    | Renders carry no delta, so these keys do not reach a region render.
+    */
+    'state' => [
+        // 'server_version' => [App\Asgard\Facts::class, 'version'],
+    ],
+
+    /*
+    | Extra HTTP headers on every answer from an Asgard endpoint: the
+    | handshake, renders, calls, uploads, routes, the stream and the errors
+    | they give. A value may be a string, a number or a callable as for
+    | `state` above. A callable that gives null leaves the header out.
+    |
+    | These are plain headers. The answer's encryption and signature do not
+    | cover them, so TLS is all that protects them. Do not put anything in
+    | them that the encryption is meant to protect.
+    |
+    | Names Asgard sets, signs or that a client reads are refused with an
+    | exception: anything starting Content-, Asgard- or X-Asgard-, Allow,
+    | Cache-Control, Connection, Keep-Alive, Set-Cookie, Signature,
+    | Signature-Input, Trailer, Transfer-Encoding, Upgrade and
+    | X-Accel-Buffering. So is a value with a line break.
+    */
+    'headers' => [
+        // 'X-Server-Region' => 'eu-west',
     ],
 
 ];

@@ -65,7 +65,7 @@ Register it against the address of the CLIENT component. The client
 component names its address with an attribute:
 
 ```php
-#[ServerAddress('home')]
+#[EntangleWith('home')]
 class Home extends NativeComponent
 ```
 
@@ -294,6 +294,39 @@ allowlists, so an action cannot be called as a server method or the other
 way round. Nothing is rendered unless the method asks for it with
 `refresh()`, below.
 
+### Computed values
+
+A public method marked `#[Computed]` is a value the server works out. It is
+called each time a `#[Server]` call or an upload is answered, after the
+method ran, and its result goes in the delta under the method's name, every
+time, whether it changed or not:
+
+```php
+use Native\Asgard\Attributes\Computed;
+
+public array $items = [];
+
+#[Computed]
+public function total(): int
+{
+    return array_sum($this->items);
+}
+```
+
+The device's component keeps it only if it has a public prop called `total`.
+A computed value is read-only here. State the device sends under its name is
+ignored, like any key without a prop, and it can never be run as an action,
+a server method, an upload or a region. It must be public and non-static
+with no required parameters, it may not carry `#[Action]`, `#[Server]`,
+`#[Upload]` or `#[Region]`, and it may not share its name with a public prop.
+Breaking any of those throws when the component is first used. A parent
+class's `#[Computed]` methods count too.
+
+Its value must be plain JSON, as a changed prop's must, or the answer is a
+500 `invalid_delta`. If it throws, the answer is what it would be had the
+method thrown. A region can call it like any other method, as
+`$this->total()`.
+
 ### Uploads
 
 An `#[Upload]` method takes a file from the device. The app sends it with
@@ -341,6 +374,53 @@ let it through:
   `memory_limit` about four times `max_size`.
 - A body bigger than `max_size` allows is refused with a plain 413 before it is
   hashed or decrypted.
+
+### App-wide state and headers
+
+Two options in `config/asgard.php` add the same facts to every answer.
+
+`state` adds keys to the delta of every `#[Server]` call and upload answer,
+after the changed props and computed values, every time:
+
+```php
+'state' => [
+    'server_version' => [App\Asgard\Facts::class, 'version'],
+],
+```
+
+Keys are property names: letters, digits and underscores, not starting with a
+digit, at most 100 characters. A value is null, a bool, a finite number, a
+UTF-8 string or an array of those. It may also be a callable, called with no
+arguments each time an answer is built. Use a `[Class::class, 'method']`
+callable rather than a closure, because a closure in config stops
+`php artisan config:cache` working. A bad key or value throws. A component's
+own public prop or `#[Computed]` of the same name wins, so its value goes
+instead, or nothing does if the prop did not change. The device keeps a key
+only where its component has a public prop of that name.
+
+`headers` adds plain HTTP headers to every answer from an Asgard endpoint:
+the handshake, renders, calls, uploads, routes, the stream and the errors
+they give.
+
+```php
+'headers' => [
+    'X-Server-Region' => 'eu-west',
+],
+```
+
+A value is a string or a number, or a callable as above. A callable that
+gives null leaves the header out. Names Asgard sets, signs or that a client
+reads are refused with an exception: anything starting `Content-`, `Asgard-`
+or `X-Asgard-`, and `Allow`, `Cache-Control`, `Connection`, `Keep-Alive`,
+`Set-Cookie`, `Signature`, `Signature-Input`, `Trailer`, `Transfer-Encoding`,
+`Upgrade` and `X-Accel-Buffering`. So is a value with a line break.
+
+These headers are not encrypted and the response signature does not cover
+them, so only TLS protects them. Do not put anything in them that the
+encryption is meant to protect.
+
+Renders carry no delta today, so `state` and computed values do not reach a
+region render or a pushed fragment. Only the headers do. That is a known gap.
 
 ### Redrawing other regions
 
@@ -791,7 +871,7 @@ distinct names, and cannot carry an `action`:
 ```
 
 `component` is the address the client component named with
-`#[ServerAddress]`, or its FQCN in dot notation with each segment
+`#[EntangleWith]`, or its FQCN in dot notation with each segment
 snake-cased. There is no `platform` member: a client sends what it wants the
 server to know about itself in `state`. One that still sends `platform` has it
 ignored, as any unknown member is. A malformed request gets 422
@@ -854,15 +934,16 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 action, its signature must carry a nonce.
 
 **Request body:** the component, the `#[Server]` method, its args by position,
-and the device's state after its own body ran. Nothing else is allowed, apart
-from a `platform` member from an older client, which is ignored.
+and the device's state after its own body ran. Nothing else is allowed. A
+`platform` member from an older client is refused like any unknown member.
 
 ```json
 {"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{"rolling":true,"platform":"ios"}}
 ```
 
-**Response 200:** the props the method changed. `delta` is always an object,
-`{}` when nothing changed. It is never gzipped, since it can mix the server's
+**Response 200:** the props the method changed, then every `#[Computed]`
+value, then the keys from `asgard.state`. `delta` is always an object, `{}`
+when there is nothing to send. It is never gzipped, since it can mix the server's
 values with text the device chose.
 
 ```json
@@ -881,7 +962,7 @@ out. The answer is still never gzipped.
 | 404 | `{"error":"unknown_component"}` | The address is not registered. |
 | 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[Server]` method on the component, or the arg count doesn't fit it. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
-| 500 | `{"error":"invalid_delta"}` | The method left a changed prop that is not a plain JSON value. The message is included in debug. |
+| 500 | `{"error":"invalid_delta"}` | The method left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |
 
 ### Upload
 

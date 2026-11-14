@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Native\Asgard\Http\CallController;
 use Native\Asgard\Http\MethodNotAllowed;
+use Native\Asgard\Http\Middleware\AddConfiguredHeaders;
 use Native\Asgard\Http\Middleware\LimitUploadSize;
 use Native\Asgard\Http\Middleware\RequireQuery;
 use Native\Asgard\Http\Middleware\SealAsgardMessages;
@@ -23,11 +24,13 @@ $refused = ['GET', 'HEAD', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'];
 
 // Deliberately outside the `web` group: no session, no CSRF, no cookies.
 // The handshake creates a session, so it is a plain POST and never QUERY.
+// asgard.headers go on every answer, so their middleware wraps all the rest.
 Route::post($prefix.'/session', SessionController::class)
-    ->middleware($middleware)
+    ->middleware([AddConfiguredHeaders::class, ...$middleware])
     ->name('asgard.session');
 
-Route::match([...$refused, 'QUERY'], $prefix.'/session', MethodNotAllowed::class);
+Route::match([...$refused, 'QUERY'], $prefix.'/session', MethodNotAllowed::class)
+    ->middleware(AddConfiguredHeaders::class);
 
 // Signature checks run first, so the app's middleware (bearer auth, say)
 // only ever sees a request that is known to be intact. Calls and uploads
@@ -43,8 +46,9 @@ $endpoints = [
 
 foreach ($endpoints as $name => [$controller, $checks]) {
     Route::match(['QUERY', 'POST'], $prefix.'/'.$name, $controller)
-        ->middleware([RequireQuery::class, ...$checks, ...$middleware])
+        ->middleware([AddConfiguredHeaders::class, RequireQuery::class, ...$checks, ...$middleware])
         ->name('asgard.'.$name);
 
-    Route::match($refused, $prefix.'/'.$name, MethodNotAllowed::class);
+    Route::match($refused, $prefix.'/'.$name, MethodNotAllowed::class)
+        ->middleware(AddConfiguredHeaders::class);
 }

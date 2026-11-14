@@ -6,6 +6,7 @@ use Illuminate\Http\UploadedFile;
 use InvalidArgumentException;
 use LogicException;
 use Native\Asgard\Attributes\Action;
+use Native\Asgard\Attributes\Computed;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Attributes\Screen;
@@ -46,6 +47,12 @@ use ReflectionUnionType;
  *             UploadedFile. The spec covers the parameters after it, with
  *             the attribute's size cap in bytes and its mime types. An
  *             upload request can only run these.
+ * computed:   names of the #[Computed] methods: public, non-static,
+ *             non-abstract, non-magic, with no required parameters. A
+ *             parent's count too, since the wire never picks which runs. Their values go in every delta. Such
+ *             a method is never an action, server method, upload or
+ *             region, and a public prop of the same name is refused, as is
+ *             a #[Computed] that breaks any of these rules.
  */
 final class ComponentMetadata
 {
@@ -60,6 +67,7 @@ final class ComponentMetadata
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $servers
      * @param  array<string, array{spec: array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}, maxSize: int|null, mimes: list<string>}>  $uploads
+     * @param  list<string>  $computed
      */
     private function __construct(
         public readonly array $regions,
@@ -69,6 +77,7 @@ final class ComponentMetadata
         public readonly array $shared = [],
         public readonly array $servers = [],
         public readonly array $uploads = [],
+        public readonly array $computed = [],
     ) {}
 
     public function compresses(string $region): bool
@@ -191,11 +200,63 @@ final class ComponentMetadata
             $properties[$property->getName()] = ['types' => $types, 'nullable' => $nullable];
         }
 
+        $computed = self::computed($reflection);
         $actions = self::callable($reflection, Action::class);
         $servers = self::callable($reflection, Server::class);
         $uploads = self::uploadable($reflection);
 
-        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers, $uploads);
+        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers, $uploads, $computed);
+    }
+
+    /** The wire-facing attributes a #[Computed] method may not also carry. */
+    private const NOT_WITH_COMPUTED = [Action::class, Server::class, Upload::class, Region::class];
+
+    /**
+     * The names of the #[Computed] methods. A mistake in one throws rather
+     * than leaving it out quietly, since a value the app expects would
+     * otherwise never arrive.
+     *
+     * @return list<string>
+     */
+    private static function computed(ReflectionClass $reflection): array
+    {
+        $class = $reflection->getName();
+        $computed = [];
+
+        foreach ($reflection->getMethods() as $method) {
+            if ($method->getAttributes(Computed::class) === []) {
+                continue;
+            }
+
+            $name = $method->getName();
+            $where = "#[Computed] on [{$class}::{$name}()]";
+
+            if (! $method->isPublic() || $method->isStatic() || $method->isAbstract() || str_starts_with($name, '__')) {
+                throw new LogicException("{$where} must be a public, non-static, non-magic method.");
+            }
+
+            if ($method->getNumberOfRequiredParameters() > 0) {
+                throw new LogicException("{$where} cannot have required parameters.");
+            }
+
+            foreach (self::NOT_WITH_COMPUTED as $attribute) {
+                if ($method->getAttributes($attribute) !== []) {
+                    throw new LogicException("{$where} cannot also be #[".class_basename($attribute).'].');
+                }
+            }
+
+            if ($reflection->isSubclassOf(ServerScreen::class) && in_array($name, ['render', 'chrome'], true)) {
+                throw new LogicException("{$where}: a screen's {$name}() cannot be computed.");
+            }
+
+            if ($reflection->hasProperty($name) && $reflection->getProperty($name)->isPublic() && ! $reflection->getProperty($name)->isStatic()) {
+                throw new LogicException("{$where} has the same name as a public prop, so one would hide the other in the delta.");
+            }
+
+            $computed[] = $name;
+        }
+
+        return $computed;
     }
 
     /**

@@ -3,15 +3,21 @@
 namespace Native\Asgard\Http\Concerns;
 
 use Illuminate\Http\JsonResponse;
+use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\ComponentMetadata;
+use Native\Asgard\Support\ConfiguredState;
+use Native\Asgard\Support\JsonValue;
 use ReflectionObject;
 use ReflectionProperty;
 use UnexpectedValueException;
 
 /**
  * The answer to a `#[Server]` call or an upload: the props the method
- * changed, plus any regions and hints it asked for with refresh().
+ * changed, then every #[Computed] value, then the app-wide keys from
+ * `asgard.state`, plus any regions and hints it asked for with refresh().
+ * A component's own prop or computed wins over a configured key of the
+ * same name.
  * Shared by the call and upload endpoints. Needs RendersRegions and the
  * ReadsAsgardRequests helpers.
  *
@@ -21,8 +27,6 @@ use UnexpectedValueException;
  */
 trait AnswersWithDelta
 {
-    private const MAX_DEPTH = 32;
-
     /**
      * Build the answer once the method has run. `$before` is
      * fingerprints() from straight after hydration.
@@ -34,13 +38,20 @@ trait AnswersWithDelta
     {
         try {
             $delta = $this->delta($component, $before);
+            $delta += $this->computed($component, $metadata);
         } catch (UnexpectedValueException $e) {
             report($e);
 
             return config('app.debug')
-                ? $this->error(500, 'invalid_delta', $component::class.'::'.$method.'() left a prop that cannot be sent. '.$e->getMessage())
+                ? $this->error(500, 'invalid_delta', $component::class.'::'.$method.'() left a value that cannot be sent. '.$e->getMessage())
                 : response()->json(['error' => 'invalid_delta'], 500);
+        } catch (InvalidRequest $e) {
+            // As if the method itself had thrown it.
+            return $this->error(422, 'invalid_request', $e->getMessage());
         }
+
+        // Config mistakes throw, as they would anywhere else.
+        $delta += array_diff_key(ConfiguredState::resolve(), $this->properties($component));
 
         $answer = ['protocol' => self::PROTOCOL, 'delta' => (object) $delta];
 
@@ -105,7 +116,7 @@ trait AnswersWithDelta
                 continue;
             }
 
-            if (! self::isJsonValue($value, 0)) {
+            if (! JsonValue::is($value)) {
                 throw new UnexpectedValueException("[{$name}] must be null, a bool, a finite number, a UTF-8 string, or an array of those.");
             }
 
@@ -113,6 +124,30 @@ trait AnswersWithDelta
         }
 
         return $delta;
+    }
+
+    /**
+     * Every #[Computed] value, worked out now from the props as the method
+     * left them. Sent every time, changed or not. One that throws throws
+     * as the method would have.
+     *
+     * @return array<string, mixed>
+     */
+    protected function computed(ServerComponent $component, ComponentMetadata $metadata): array
+    {
+        $values = [];
+
+        foreach ($metadata->computed as $name) {
+            $value = $component->{$name}();
+
+            if (! JsonValue::is($value)) {
+                throw new UnexpectedValueException("#[Computed] [{$name}] must give null, a bool, a finite number, a UTF-8 string, or an array of those.");
+            }
+
+            $values[$name] = $value;
+        }
+
+        return $values;
     }
 
     /** @return array<string, ReflectionProperty> */
@@ -127,36 +162,5 @@ trait AnswersWithDelta
         }
 
         return $properties;
-    }
-
-    private static function isJsonValue(mixed $value, int $depth): bool
-    {
-        if ($value === null || is_bool($value) || is_int($value)) {
-            return true;
-        }
-
-        if (is_float($value)) {
-            return is_finite($value);
-        }
-
-        if (is_string($value)) {
-            return mb_check_encoding($value, 'UTF-8');
-        }
-
-        if (! is_array($value) || $depth >= self::MAX_DEPTH) {
-            return false;
-        }
-
-        foreach ($value as $key => $item) {
-            if (is_string($key) && ! mb_check_encoding($key, 'UTF-8')) {
-                return false;
-            }
-
-            if (! self::isJsonValue($item, $depth + 1)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 }
