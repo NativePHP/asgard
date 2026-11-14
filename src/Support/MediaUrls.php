@@ -5,7 +5,7 @@ namespace Native\Asgard\Support;
 use Native\Asgard\Exceptions\InvalidFragment;
 
 /**
- * Makes every media URL in a fragment or in chrome absolute (protocol §9.6).
+ * Makes every media URL in a fragment or in chrome absolute (Asgard protocol §9.6).
  *
  * On the device a relative `src` is an asset the app shipped, and a path
  * starting with `/` is a file on the phone. Neither is what a server author

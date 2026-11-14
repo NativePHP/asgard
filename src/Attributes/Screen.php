@@ -16,12 +16,12 @@ use Attribute;
  * screen can add a route, never replace one.
  *
  * `name` is the screen's wire address. It defaults to the class name in
- * dot notation, the way client components are addressed (protocol §4).
+ * dot notation, the way client components are addressed (Asgard protocol §4).
  *
  * `compress: false` turns off gzip for the screen's answers, for the same
- * reason #[Region] has it (protocol §7.4). `shared: true` is #[Region]'s
+ * reason #[Region] has it (Asgard protocol §7.4). `shared: true` is #[Region]'s
  * too: the screen renders the same for everyone with the same state, so a
- * push sends it inline (protocol §8.1).
+ * push sends it inline (Asgard protocol §8.1).
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final class Screen

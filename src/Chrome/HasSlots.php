@@ -6,7 +6,7 @@ use Native\Asgard\Support\Callback;
 
 /**
  * The press slot of a chrome button, with the same builders as Node and
- * the same checked shapes (protocol §10.1, §12 "Navigation").
+ * the same checked shapes (Asgard protocol §10.1, §12.4).
  */
 trait HasSlots
 {

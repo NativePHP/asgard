@@ -15,8 +15,10 @@ namespace Native\Asgard\Blade;
  * `<top-bar>` then compiles to a node, and FragmentValidator rejects it by
  * name, instead of the tag being dropped as markup without a word.
  *
- * `<native:anything>` always compiles, whatever is on this list. The device
- * decides whether it can render a type (protocol §9.4).
+ * `<native:anything>` always compiles, whatever is on this list. Compiling
+ * is not the same as sending: a fragment may only use the core types and
+ * the ones the client listed in `elements` at the handshake, and
+ * FragmentValidator refuses the rest (Asgard protocol §9.3).
  */
 final class Elements
 {

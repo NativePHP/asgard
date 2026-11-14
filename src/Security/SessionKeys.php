@@ -3,7 +3,7 @@
 namespace Native\Asgard\Security;
 
 /**
- * The four keys of one Asgard session (protocol §7.2), and the session secret
+ * The four keys of one Asgard session (Asgard protocol §7.2), and the session secret
  * they come from (§6.1).
  */
 final class SessionKeys

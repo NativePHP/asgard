@@ -7,7 +7,7 @@ use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Support\Callback;
 
 /**
- * Fluent builder for one fragment node (protocol §9.1).
+ * Fluent builder for one fragment node (Asgard protocol §9.1).
  *
  *     Node::column(
  *         Node::text('Hello'),

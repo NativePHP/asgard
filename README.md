@@ -5,9 +5,9 @@ mobile app marks regions with `@server('greeting') … @endserver`, sends its
 state here, and paints the native elements this package returns.
 
 The protocol itself is at [NativePHP/asgard-protocol](https://github.com/NativePHP/asgard-protocol).
-This package implements a v0 walking skeleton of it.
+This package implements a v0 walking skeleton of it, following Draft 2.
 
-Every request and response is signed and encrypted (protocol §6 and §7), and
+Every request and response is signed and encrypted (Asgard protocol §6 and §7), and
 so is every pushed stream event. That is integrity and privacy from logging
 proxies, not authentication: `ASGARD_KEY` is public, so anyone with the app can
 open a session. Identify users with your own bearer auth in
@@ -128,7 +128,8 @@ the same checks, so chrome like `<top-bar>` is still refused.
 - `<native:column>` and the bare `<column>` both work. Bare tags are accepted
   for nativephp/mobile's core elements and nativephp/mobile-ui's elements.
   Add a plugin's types (snake_case) to `asgard.blade.elements`.
-  `<native:anything>` always compiles.
+  `<native:anything>` always compiles. Compiling a tag does not mean the
+  device can draw it: see "Element types" below.
 - `$this` is the component, and its public properties are view variables
   too. Data passed to `view()` wins over a property of the same name.
 - `class` is passed through for the device to parse. `key` (or
@@ -188,6 +189,19 @@ built with `app.debug` on.
 The device loads media itself, with no Asgard session and none of the
 user's auth. Private media needs a URL that carries its own permission:
 `URL::temporarySignedRoute()` or `Storage::temporaryUrl()`.
+
+### Element types
+
+A fragment may use the core types every client draws: `column`, `row`,
+`stack`, `scroll_view`, `text`, `button`, `image`, `spacer` and `divider`.
+Anything else (`list_item`, `toggle`, a plugin's `map_view`) needs the
+client to list it in `elements` when it opens its session. A region that
+returns a type the client did not list is an invalid fragment, a 500, and
+the device keeps its placeholder. So does chrome whose `titleView`,
+`bottomBar` or `tabAccessory` uses one.
+
+Screen chrome and `server_region` are never allowed in a fragment, whatever
+the client lists.
 
 ### Node builder
 
@@ -410,7 +424,8 @@ shape: a server screen can add a route, never replace one.
 `chrome()` returns a `Chrome`, the array form of it, or null for none. It
 travels as its own part of the answer and is checked on its own. Chrome is
 never accepted inside the body, so `Node::make('top_bar')` or a `<top-bar>`
-tag in a screen view is refused.
+tag in a screen view is refused. A chrome member the package does not know
+is dropped rather than sent.
 
 - `->native()` draws the bars with the platform's own navigation.
   `->font('Inter')` sets a font for both bars.
@@ -649,21 +664,28 @@ Config, under `asgard.stream`:
 
 ## Sessions and security
 
-The app opens a session at `POST {base}/_asgard/session` with its key and an
-ephemeral P-256 public key. The server answers with its own public key and a
-session id, and both sides derive the session secret with ECDH and HKDF. The
-secret is never sent. Sessions live in a cache store and expire after
-`lifetime` seconds without a request.
+The app opens a session with a plain `POST {base}/_asgard/session` carrying
+its key, the extra element types it can draw, and an ephemeral P-256 public
+key. The server answers with its own public key and a session id, and both
+sides derive the session secret with ECDH and HKDF. The secret is never
+sent. Sessions live in a cache store and expire after `lifetime` seconds
+without a request.
 
 ```json
-→ {"key":"<ASGARD_KEY>","protocol":1,"accepts":["tree/json"],"client_public":"<base64url point>"}
+→ {"key":"<ASGARD_KEY>","protocol":1,"accepts":["tree/json"],"elements":["list_item","toggle"],"client_public":"<base64url point>"}
 ← {"session":"<id>","server_public":"<base64url point>","expires_in":1800,"encoding":"tree/json"}
 ```
 
-Render, call and stream requests then carry `Asgard-Session-Id`, an `aes128gcm` body
-(RFC 8188), `Content-Digest` (RFC 9530) and an `hmac-sha256` signature under
-the label `asgard` (RFC 9421). Server actions and calls also sign a nonce, and a nonce
-is refused the second time. The `SealAsgardMessages` middleware checks all of
+`elements` is optional. It is a list of up to 256 distinct snake_case type
+names, kept with the session. A malformed list is a 422. Chrome types and
+`server_region` in it are dropped, since a fragment can never use them.
+
+Render, call, upload, stream and route list requests then carry
+`Asgard-Session-Id`, an `aes128gcm` body (RFC 8188), `Content-Digest`
+(RFC 9530) and an `hmac-sha256` signature under the label `asgard`
+(RFC 9421). Server actions, calls and uploads also sign a nonce, and a nonce
+is refused the second time. A call or upload without a nonce gets a plain
+403 `nonce_required` before its body is decrypted. The `SealAsgardMessages` middleware checks all of
 it before your middleware or any controller sees the request, and seals
 whatever comes back. Stream events are sealed one by one and bound to the
 request that opened the stream.
@@ -697,10 +719,16 @@ The crypto lives in `src/Security`, in small classes with no Laravel in them.
 The bodies below are the plaintext. On the wire each one is inside
 `aes128gcm`, as described above.
 
-**Endpoint:** `{base}/_asgard/render`. The prefix is `asgard.path`. Two forms:
+**Endpoint:** `{base}/_asgard/render`. The prefix is `asgard.path`, so the
+client's base URL (the protocol's `{base}`) is the app's URL plus that
+prefix. The endpoints below it are `session`, `render`, `call`, `upload`,
+`stream` and `routes`. Every one but `session` takes two forms:
 
 - `QUERY` with a JSON body.
 - `POST` with header `X-Asgard-Method: QUERY`. A POST without it gets 405.
+
+`session` takes only a plain POST. Any other method, on any endpoint, gets
+the plain, unsigned `405 {"error":"method_not_allowed",…}`.
 
 The route sits outside the `web` group: no session, no CSRF, no cookies. Add
 throttling or auth with `asgard.middleware`. `php artisan serve` cannot do
@@ -780,13 +808,13 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | Status | Body | When |
 | --- | --- | --- |
 | 403 | `{"error":"forbidden",…}` | Digest, signature or decryption failed, the signature expired, or a nonce was replayed. Plain, unsigned. Do not retry. |
-| 403 | `{"error":"nonce_required"}` | An action whose signature has no nonce. |
+| 403 | `{"error":"nonce_required"}` | An action whose signature has no nonce. Sealed, since only the decrypted body says it is an action. |
 | 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare (any one of `regions`). Same body for both. |
 | 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[Action]` on the component, or the arg count doesn't fit it. |
-| 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`. |
+| 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`, or a method other than QUERY and POST. Plain, unsigned. |
 | 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
-| 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment. The message is included in debug. |
+| 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment, including one with a type the client did not list. The message is included in debug. |
 
 ### Call
 
@@ -817,7 +845,7 @@ out. The answer is still never gzipped.
 
 | Status | Body | When |
 | --- | --- | --- |
-| 403 | `{"error":"nonce_required"}` | The signature has no nonce. |
+| 403 | `{"error":"nonce_required",…}` | The signature has no nonce. Plain and unsigned, sent before the body is decrypted. |
 | 404 | `{"error":"unknown_component"}` | The address is not registered. |
 | 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[Server]` method on the component, or the arg count doesn't fit it. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
@@ -876,6 +904,8 @@ component instance on screen. No `action`.
 - `state` is checked and hydrated as render's is, separately per subscription.
 - `versions` is optional. It maps a region to the `version` token the device
   holds for it, from a render answer or an earlier event.
+- Other members, at the top level or in a subscription, are ignored. Only
+  `action` is refused.
 
 Everything is checked before the stream starts, and failures are the same JSON
 errors as render: 405, 422 (bad body, bad subscriptions, an `action` key, state
@@ -963,13 +993,21 @@ verifies on the stream it was sent on.
   the same checks, and whose first param takes an `UploadedFile`. It needs a
   nonce too. The file's type is sniffed from its bytes, and its device
   filename is never part of a path.
-- Fragments are validated before they leave. Callback slots must be
-  `{call, args, target?}` objects. Screen chrome (`top_bar*`,
-  `bottom_nav*`, `bottom_bar`, `side_nav*`, `fab`) and `server_region` are
-  rejected. Props keys starting `_`, `native-` or `native:` are stripped.
-  Unknown node fields are rejected. Media URLs are made absolute and any
-  scheme but `http:` and `https:` is rejected. A `webview` in php mode is
-  rejected.
+- Fragments are validated before they leave. Each node's type must be a
+  core type or one the client listed in `elements` at the handshake (see
+  "Element types"). Screen chrome (`top_bar*`, `bottom_nav*`, `bottom_bar`,
+  `side_nav*`, `fab`) and `server_region` are rejected even if listed.
+  Callback slots must be `{call, args, target?}` objects. Props keys
+  starting `_`, `native-` or `native:` are stripped. Node fields the
+  package does not know are dropped. Nesting deeper than 64 levels (the
+  root counts as 1) is rejected, and so are siblings that share a key.
+  Media URLs are made absolute and any scheme but `http:` and `https:` is
+  rejected. A `webview` whose `local` (or older `php`) prop is anything but
+  `false` or `null` is rejected, because it would load the app's own
+  content.
+- Chrome members the package does not know are dropped, not sent. Slots and
+  navigations in chrome are checked like a fragment's, and refuse unknown
+  members.
 - The stream endpoint applies the same checks as render to every region of
   every subscription, before any output. It renders only shared regions, on
   a fresh component hydrated from the subscription's state, with nobody

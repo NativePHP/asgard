@@ -10,7 +10,7 @@ use Native\Asgard\Node;
 /**
  * A server screen's chrome: everything a NativeLayout and a screen's
  * navigationOptions() / tabBarOptions() describe in an app, sent as its
- * own part of the answer (protocol §12, "Chrome").
+ * own part of the answer (Asgard protocol §12.2).
  *
  *     Chrome::make()
  *         ->native()

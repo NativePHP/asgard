@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Refuses an upload that is too big before anything hashes or decrypts it
- * (protocol §10.6). Runs ahead of SealAsgardMessages on the upload route.
+ * (Asgard protocol §10.6). Runs ahead of SealAsgardMessages on the upload route.
  *
  * The limit is `asgard.uploads.max_size`, plus room for the frame header
  * and what encryption adds. A method's own #[Upload] maxSize is checked
@@ -49,7 +49,7 @@ class LimitUploadSize
     /**
      * The largest sealed body a file of `$max` bytes can make: the frame,
      * plus the aes128gcm header (at most 276 bytes) and 17 bytes for each
-     * 4079 byte record (RFC 8188, §7.4).
+     * 4079 byte record (RFC 8188, Asgard protocol §7.4).
      */
     public static function limit(int $max): int
     {

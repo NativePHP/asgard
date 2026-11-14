@@ -6,7 +6,7 @@ use Illuminate\Contracts\View\View;
 use Native\Asgard\Chrome\Chrome;
 
 /**
- * A whole screen the server owns (protocol §12, "Screens").
+ * A whole screen the server owns (Asgard protocol §12.1).
  *
  *     #[Screen('/promos/{id}')]
  *     class PromoScreen extends ServerScreen

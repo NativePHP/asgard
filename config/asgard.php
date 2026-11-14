@@ -4,7 +4,8 @@ return [
 
     /*
     | Path prefix for the endpoints: {path}/session, {path}/render,
-    | {path}/call, {path}/upload, {path}/stream and {path}/routes.
+    | {path}/call, {path}/upload, {path}/stream and {path}/routes. The app's
+    | URL plus this prefix is the base URL the client is configured with.
     */
     'path' => env('ASGARD_PATH', '_asgard'),
 
@@ -17,7 +18,7 @@ return [
     'key' => env('ASGARD_KEY'),
 
     /*
-    | Sessions from the handshake (protocol §6). A session expires after
+    | Sessions from the handshake (Asgard protocol §6). A session expires after
     | `lifetime` seconds without a request.
     |
     | store: cache store for sessions and action nonces. Must be shared by

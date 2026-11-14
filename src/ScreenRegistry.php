@@ -8,7 +8,7 @@ use Native\Asgard\Attributes\Screen;
 use ReflectionClass;
 
 /**
- * Server screens and the routes they answer (protocol §12, "Screens").
+ * Server screens and the routes they answer (Asgard protocol §12.1).
  *
  * A screen is registered by class, from `config('asgard.screens')` or
  * Asgard::screen(). Its route comes from its #[Screen] attribute, so the
@@ -118,7 +118,7 @@ class ScreenRegistry
         return $this->screens;
     }
 
-    /** App\Asgard\PromoScreen => app.asgard.promo_screen, as protocol §4 addresses components. */
+    /** App\Asgard\PromoScreen => app.asgard.promo_screen, as Asgard protocol §4 addresses components. */
     public static function addressFor(string $class): string
     {
         return implode('.', array_map(

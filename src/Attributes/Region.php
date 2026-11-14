@@ -17,7 +17,7 @@ use Attribute;
  * `shared: true` marks a region that renders the same for everyone with the
  * same state. When a push moves it, the push stream sends its fragment
  * inline, rendered once for every device with that state, instead of a
- * signal that makes each device fetch it (protocol §8.1). On the stream it
+ * signal that makes each device fetch it (Asgard protocol §8.1). On the stream it
  * renders with no authenticated user, so it must not depend on the user or
  * hold secrets. That also makes compressing it safe. Leave it off when in
  * doubt: a region that is not shared costs a round trip, never a leak.

@@ -3,7 +3,7 @@
 namespace Native\Asgard\Security;
 
 /**
- * The gzip content coding, for fragments (protocol §7.4).
+ * The gzip content coding, for fragments (Asgard protocol §7.4).
  *
  * encode() writes a fixed header (no file name, mtime 0, OS 255) around a
  * raw deflate stream at level 6, so the same zlib gives the same bytes on
