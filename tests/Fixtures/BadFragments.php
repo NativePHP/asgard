@@ -16,6 +16,12 @@ class BadFragments extends ServerComponent
         return Node::column(Node::make($this->type));
     }
 
+    #[Region('typed', shared: true)]
+    public function typed(): Node
+    {
+        return Node::make($this->type);
+    }
+
     #[Region('props')]
     public function props(): array
     {

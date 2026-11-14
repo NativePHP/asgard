@@ -48,7 +48,7 @@ it('agrees a session without the secret crossing the wire', function () {
     $serverPublic = Base64Url::decode($response->json('server_public'));
     $secret = SessionKeys::secret(Ecdh::agree($private, $serverPublic), $public, $serverPublic);
 
-    expect(Base64Url::decode(Cache::get(SessionStore::PREFIX.$response->json('session'))))->toBe($secret)
+    expect(Base64Url::decode(Cache::get(SessionStore::PREFIX.$response->json('session'))['secret']))->toBe($secret)
         ->and($response->getContent())->not->toContain(Base64Url::encode($secret));
 });
 

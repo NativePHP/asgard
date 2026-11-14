@@ -125,6 +125,7 @@ class StreamController
         // error response, not a broken stream. Bad state was already caught
         // when channels() hydrated each subscription. A region the device
         // already holds at the current version is left out.
+        $elements = $this->secure($request)->elements;
         $initial = [];
         foreach ($subscriptions as $id => $subscription) {
             foreach ($subscription['regions'] as $region) {
@@ -135,7 +136,7 @@ class StreamController
                 }
 
                 try {
-                    $answer = $this->shared($subscription, $region, $version, $platform);
+                    $answer = $this->shared($subscription, $region, $version, $platform, $elements);
                 } catch (InvalidRequest $e) {
                     return $this->error(422, 'invalid_request', $e->getMessage());
                 } catch (InvalidFragment $e) {
@@ -184,9 +185,10 @@ class StreamController
                 throw new InvalidRequest("{$field} must be an object.");
             }
 
-            $extra = array_diff(array_map('strval', array_keys($subscription)), ['id', 'component', 'regions', 'state', 'versions']);
-            if ($extra !== []) {
-                throw new InvalidRequest("{$field} has unknown fields.");
+            // Members this version does not know are ignored (§5.3). Only an
+            // action is refused, as at the top level (§8.1).
+            if (array_key_exists('action', $subscription)) {
+                throw new InvalidRequest("{$field} must not carry an action.");
             }
 
             $id = $subscription['id'] ?? null;
@@ -280,10 +282,14 @@ class StreamController
      * already rendered it for this state and version. Null for a region
      * that is not shared, which the stream signals instead.
      *
+     * The element types the stream's client advertised are part of the
+     * cache key, since they decide which fragments are allowed.
+     *
      * @param  array{component: string, state: array<string, mixed>, class: class-string<ServerComponent>, methods: array<string, string>}  $subscription
+     * @param  list<string>  $elements
      * @return array{fragment: array, chrome?: object}|null
      */
-    protected function shared(array $subscription, string $region, string $version, string $platform): ?array
+    protected function shared(array $subscription, string $region, string $version, string $platform, array $elements): ?array
     {
         if (! ComponentMetadata::for($subscription['class'])->shares($region)) {
             return null;
@@ -291,7 +297,8 @@ class StreamController
 
         $answer = $this->versions->shared(
             $subscription['component'], $region, $platform, $subscription['state'], $version,
-            fn () => $this->asGuest(fn () => $this->render($subscription['class'], $subscription['methods'][$region], $region, $platform, $subscription['state'])),
+            fn () => $this->asGuest(fn () => $this->render($subscription['class'], $subscription['methods'][$region], $region, $platform, $subscription['state'], $elements)),
+            $elements,
         );
 
         // Chrome is a JSON object even when empty, however the store kept it.
@@ -327,9 +334,10 @@ class StreamController
      * @param  class-string<ServerComponent>  $class
      *                                                A screen's answer carries its chrome too, as render's does.
      * @param  array<string, mixed>  $state
+     * @param  list<string>  $elements
      * @return array{fragment: array<string, mixed>|list<array<string, mixed>>, chrome?: object}
      */
-    protected function render(string $class, string $method, string $region, string $platform, array $state): array
+    protected function render(string $class, string $method, string $region, string $platform, array $state, array $elements): array
     {
         $component = $this->container->make($class);
         $component->setAsgardContext($region, $platform);
@@ -340,10 +348,11 @@ class StreamController
 
         $answer = ['fragment' => FragmentValidator::validate(
             $views->resolve($this->container->call([$component, $method]), $component),
+            $elements,
         )];
 
         if ($component instanceof ServerScreen) {
-            $answer['chrome'] = (object) ChromeValidator::validate($views->chrome($component->chrome(), $component));
+            $answer['chrome'] = (object) ChromeValidator::validate($views->chrome($component->chrome(), $component), $elements);
         }
 
         return $answer;
@@ -408,7 +417,7 @@ class StreamController
                     $version = PushVersions::token($subscription['component'], $region, $subscription['channels'], $current[$id]);
 
                     try {
-                        $answer = $this->shared($subscription, $region, $version, $platform);
+                        $answer = $this->shared($subscription, $region, $version, $platform, $secure->elements);
                     } catch (Throwable $e) {
                         // Headers are long gone, so there is no error response to
                         // give. Report it and leave the device on its last fragment.

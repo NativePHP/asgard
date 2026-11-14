@@ -11,7 +11,8 @@ use InvalidArgumentException;
  */
 class ComponentRegistry
 {
-    public const ADDRESS_PATTERN = '/^[a-z0-9_]+(\.[a-z0-9_]+)*$/D';
+    /** Dot-joined segments, each starting with a letter (Asgard protocol §4). */
+    public const ADDRESS_PATTERN = '/^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$/D';
 
     /** @var array<string, class-string<ServerComponent>> */
     protected array $components = [];

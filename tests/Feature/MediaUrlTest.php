@@ -11,12 +11,12 @@ use Native\Asgard\Support\FragmentValidator;
 use Native\Asgard\Tests\Fixtures\BadFragments;
 
 /**
- * Media URLs leave the server absolute (protocol §9.6). The device reads a
+ * Media URLs leave the server absolute (Asgard protocol §9.6). The device reads a
  * relative src as one of the app's own files, and refuses one in a fragment.
  */
 function imageSrc(mixed $src, string $type = 'image', string $prop = 'src'): mixed
 {
-    return FragmentValidator::validate(Node::make($type)->prop($prop, $src))['props'][$prop] ?? null;
+    return FragmentValidator::validate(Node::make($type)->prop($prop, $src), ['list_item', 'webview', 'acme_video'])['props'][$prop] ?? null;
 }
 
 it('resolves relative media URLs against the app URL', function (string $src, string $expected) {
@@ -97,13 +97,26 @@ it('uses asgard.media_url over the request', function () {
     expect(imageSrc('https://cdn.test/x.png'))->toBe('https://cdn.test/x.png');
 });
 
-it('refuses a php-mode web view', function () {
-    expect(fn () => FragmentValidator::validate(Node::make('webview')->props(['src' => '/', 'php' => true])))
-        ->toThrow(InvalidFragment::class, 'php mode');
+it('refuses a web view that loads the app\'s own content', function (string $prop, mixed $value) {
+    expect(fn () => FragmentValidator::validate(Node::make('webview')->props(['src' => '/', $prop => $value]), ['webview']))
+        ->toThrow(InvalidFragment::class, "[{$prop}] must be false or absent");
+})->with([
+    'local true' => ['local', true],
+    'local as a string' => ['local', 'yes'],
+    'local as 1' => ['local', 1],
+    'local as an empty string' => ['local', ''],
+    'php true, for older clients' => ['php', true],
+    'php as 1' => ['php', 1],
+]);
 
-    expect(FragmentValidator::validate(Node::make('webview')->props(['src' => 'https://x.test', 'php' => false]))['props']['src'])
+it('allows a web view whose local and php are false, null or absent', function (array $props) {
+    expect(FragmentValidator::validate(Node::make('webview')->props(['src' => 'https://x.test', ...$props]), ['webview'])['props']['src'])
         ->toBe('https://x.test');
-});
+})->with([
+    'absent' => [[]],
+    'false' => [['local' => false, 'php' => false]],
+    'null' => [['local' => null, 'php' => null]],
+]);
 
 it('resolves chrome logos and action images', function () {
     $clean = ChromeValidator::validate(Chrome::make()->navBar(NavBar::make()

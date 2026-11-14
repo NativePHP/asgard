@@ -7,14 +7,15 @@ use Native\Asgard\Exceptions\InvalidFragment;
 
 /**
  * Turns what a screen's chrome() returned into a clean chrome object, or
- * throws (protocol §12, "Chrome").
+ * throws (Asgard protocol §12.2).
  *
- * Chrome is a closed vocabulary. Every key is known, every value has one
- * type, and an unknown key is an error rather than something passed
- * through. Buttons carry the same checked slots fragments do, and the
- * content slots (title_view, bottom_bar, tab_accessory) are fragments,
- * checked by FragmentValidator, so they cannot hold chrome or regions
- * either.
+ * Every known member must have its one type. A member this version does
+ * not know is ignored, as §5.3 says, and so is not sent on. Buttons carry
+ * the same checked slots fragments do, and a slot or navigation with an
+ * unknown member is still refused. The content slots (title_view,
+ * bottom_bar, tab_accessory) are fragments, checked by FragmentValidator
+ * against the same element types as the screen's body, so they cannot hold
+ * chrome or regions either.
  */
 final class ChromeValidator
 {
@@ -34,8 +35,14 @@ final class ChromeValidator
 
     public const LABEL_VISIBILITIES = ['labeled', 'selected', 'unlabeled'];
 
-    /** @return array<string, mixed> */
-    public static function validate(mixed $chrome): array
+    /** A nav bar action's members, apart from `id`. */
+    private const ACTION_MEMBERS = ['label', 'a11y_label', 'icon', 'ios_icon', 'android_icon', 'image', 'destructive', 'disabled', 'on_press', 'items'];
+
+    /**
+     * @param  list<string>  $elements  the extra types the client advertised
+     * @return array<string, mixed>
+     */
+    public static function validate(mixed $chrome, array $elements = []): array
     {
         if ($chrome === null) {
             return [];
@@ -54,18 +61,21 @@ final class ChromeValidator
             $clean[$key] = match ($key) {
                 'native' => self::bool($value, $path),
                 'font' => self::string($value, $path),
-                'nav_bar' => self::navBar($value, $path),
+                'nav_bar' => self::navBar($value, $path, $elements),
                 'tab_bar' => self::tabBar($value, $path),
-                'bottom_bar', 'tab_accessory' => self::content($value, $path),
-                default => throw new InvalidFragment("{$path}: unknown chrome field."),
+                'bottom_bar', 'tab_accessory' => self::content($value, $path, $elements),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
-    /** @return array<string, mixed> */
-    private static function navBar(mixed $bar, string $path): array
+    /**
+     * @param  list<string>  $elements
+     * @return array<string, mixed>
+     */
+    private static function navBar(mixed $bar, string $path, array $elements): array
     {
         $clean = [];
 
@@ -79,14 +89,14 @@ final class ChromeValidator
                 'display_mode' => self::oneOf($value, $at, self::DISPLAY_MODES),
                 'scroll_behavior' => self::oneOf($value, $at, self::SCROLL_BEHAVIORS),
                 'logo' => self::logo($value, $at),
-                'title_view' => self::content($value, $at),
+                'title_view' => self::content($value, $at, $elements),
                 'search' => self::search($value, $at),
                 'actions' => self::list($value, $at, self::MAX_ACTIONS, fn ($action, $p) => self::action($action, $p, true)),
-                default => throw new InvalidFragment("{$at}: unknown nav bar field."),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
     /** @return array<string, mixed> */
@@ -98,8 +108,10 @@ final class ChromeValidator
             throw new InvalidFragment("{$path}.id: an action needs an id matching ".self::ID_PATTERN.'.');
         }
 
+        // A separator is only an id. A button member on one is a mistake, so
+        // it is refused. Members this version does not know are dropped.
         if (($action['divider'] ?? false) === true) {
-            if (array_diff(array_keys($action), ['id', 'divider']) !== []) {
+            if (array_intersect(array_keys($action), self::ACTION_MEMBERS) !== []) {
                 throw new InvalidFragment("{$path}: a divider has only an id.");
             }
 
@@ -119,11 +131,11 @@ final class ChromeValidator
                 'items' => $topLevel
                     ? self::list($value, $at, self::MAX_MENU_ITEMS, fn ($item, $p) => self::action($item, $p, false))
                     : throw new InvalidFragment("{$at}: menu items cannot have items of their own."),
-                default => throw new InvalidFragment("{$at}: unknown action field."),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
     /** @return array<string, mixed> */
@@ -141,11 +153,11 @@ final class ChromeValidator
                 'label_visibility' => self::oneOf($value, $at, self::LABEL_VISIBILITIES),
                 'presentation' => self::presentation($value, $at),
                 'tabs' => self::list($value, $at, self::MAX_TABS, fn ($tab, $p) => self::tab($tab, $p)),
-                default => throw new InvalidFragment("{$at}: unknown tab bar field."),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
     /** @return array<string, mixed> */
@@ -170,11 +182,11 @@ final class ChromeValidator
                 'news', 'active' => self::bool($value, $at),
                 'search' => self::tabSearch($value, $at),
                 'on_press' => Callback::validateSlot($value, $at, 'on_press'),
-                default => throw new InvalidFragment("{$at}: unknown tab field."),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
     /** @return array{src: string, height?: float|int} */
@@ -182,7 +194,7 @@ final class ChromeValidator
     {
         $logo = self::object($logo, $path);
 
-        if (array_diff(array_keys($logo), ['src', 'height']) !== [] || ! isset($logo['src'])) {
+        if (! isset($logo['src'])) {
             throw new InvalidFragment("{$path}: a logo is {\"src\", \"height\"?}.");
         }
 
@@ -211,11 +223,11 @@ final class ChromeValidator
                 'debounce_ms' => self::int($value, $at, 0, 5000),
                 // The query text is appended to args, as for on_change, so it never navigates.
                 'on_query' => Callback::validateSlot($value, $at, 'on_change'),
-                default => throw new InvalidFragment("{$at}: unknown search field."),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
     /** @return array<string, mixed> */
@@ -229,11 +241,11 @@ final class ChromeValidator
             $clean[$key] = match ($key) {
                 'placeholder' => self::string($value, $at),
                 'debounce_ms' => self::int($value, $at, 0, 5000),
-                default => throw new InvalidFragment("{$at}: unknown search field."),
+                default => null,
             };
         }
 
-        return $clean;
+        return self::known($clean);
     }
 
     /** @return array{id: string, configuration?: array<string, mixed>} */
@@ -241,8 +253,7 @@ final class ChromeValidator
     {
         $presentation = self::object($presentation, $path);
 
-        if (array_diff(array_keys($presentation), ['id', 'configuration']) !== []
-            || ! is_string($presentation['id'] ?? null)
+        if (! is_string($presentation['id'] ?? null)
             || strlen($presentation['id']) > 128
             || ! preg_match('/\A[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[a-z0-9]+(?:[._-][a-z0-9]+)*)?\z/', $presentation['id'])) {
             throw new InvalidFragment("{$path}: a presentation is {\"id\", \"configuration\"?} with a lowercase id.");
@@ -267,14 +278,30 @@ final class ChromeValidator
         return $clean;
     }
 
-    /** A fragment (one node or a list) in a chrome content slot. */
-    private static function content(mixed $content, string $path): array
+    /**
+     * A fragment (one node or a list) in a chrome content slot.
+     *
+     * @param  list<string>  $elements
+     */
+    private static function content(mixed $content, string $path, array $elements): array
     {
         try {
-            return FragmentValidator::validate($content);
+            return FragmentValidator::validate($content, $elements);
         } catch (InvalidFragment $e) {
             throw new InvalidFragment("{$path}: {$e->getMessage()}");
         }
+    }
+
+    /**
+     * Drop the members this version does not know (§5.3). Their value is
+     * null, which no known member can have once checked.
+     *
+     * @param  array<string, mixed>  $clean
+     * @return array<string, mixed>
+     */
+    private static function known(array $clean): array
+    {
+        return array_filter($clean, fn ($value) => $value !== null);
     }
 
     /** @return array<string, mixed> */

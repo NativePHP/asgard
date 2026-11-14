@@ -34,7 +34,7 @@ trait RendersRegions
         $result = $this->container->call([$component, $method]);
 
         try {
-            $part = ['fragment' => FragmentValidator::validate($this->views->resolve($result, $component))];
+            $part = ['fragment' => FragmentValidator::validate($this->views->resolve($result, $component), $this->elements())];
         } catch (InvalidFragment $e) {
             return $this->invalidFragment($e, $component::class, $method);
         }
@@ -42,7 +42,7 @@ trait RendersRegions
         // A screen's chrome travels as its own part, checked on its own.
         if ($component instanceof ServerScreen) {
             try {
-                $part['chrome'] = (object) ChromeValidator::validate($this->views->chrome($component->chrome(), $component));
+                $part['chrome'] = (object) ChromeValidator::validate($this->views->chrome($component->chrome(), $component), $this->elements());
             } catch (InvalidFragment $e) {
                 return $this->invalidFragment($e, $component::class, 'chrome');
             }
@@ -106,7 +106,7 @@ trait RendersRegions
     }
 
     /**
-     * Each region's version token (protocol §8.1), from one read of the
+     * Each region's version token (Asgard protocol §8.1), from one read of the
      * push counters. The push store being down only costs the tokens.
      *
      * @param  list<string>  $regions

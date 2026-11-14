@@ -8,10 +8,11 @@ use Native\Asgard\Security\Base64Url;
 use Native\Asgard\Security\Ecdh;
 use Native\Asgard\Security\SecurityException;
 use Native\Asgard\Security\SessionKeys;
+use Native\Asgard\Support\FragmentValidator;
 use Native\Asgard\Support\SessionStore;
 
 /**
- * The handshake (protocol §6.1). The client sends its ephemeral P-256
+ * The handshake (Asgard protocol §6.1). The client sends its ephemeral P-256
  * public key, the server answers with its own, and each side derives the
  * session secret from the ECDH result. The secret never crosses the wire.
  */
@@ -20,6 +21,12 @@ class SessionController
     public const PROTOCOL = 1;
 
     public const ENCODING = 'tree/json';
+
+    /** At most this many extra element types in `elements`. */
+    public const MAX_ELEMENTS = 256;
+
+    /** The longest element type name `elements` may hold. */
+    public const MAX_ELEMENT_LENGTH = 64;
 
     public function __construct(protected SessionStore $sessions) {}
 
@@ -49,6 +56,12 @@ class SessionController
             return response()->json(['error' => 'unsupported_encoding', 'encodings' => [self::ENCODING]], 422);
         }
 
+        $elements = $this->elements($body['elements'] ?? null);
+
+        if ($elements === null) {
+            return $this->error(422, 'invalid_request', 'elements must be a list of at most '.self::MAX_ELEMENTS.' distinct element type names.');
+        }
+
         $clientPublic = is_string($body['client_public'] ?? null) ? Base64Url::decode($body['client_public']) : null;
 
         try {
@@ -58,7 +71,7 @@ class SessionController
             return $this->error(422, 'invalid_request', 'client_public must be an uncompressed P-256 point in base64url.');
         }
 
-        $session = $this->sessions->create(SessionKeys::secret($shared, $clientPublic, $serverPublic));
+        $session = $this->sessions->create(SessionKeys::secret($shared, $clientPublic, $serverPublic), $elements);
 
         return response()->json([
             'session' => $session,
@@ -66,6 +79,40 @@ class SessionController
             'expires_in' => $this->sessions->lifetime(),
             'encoding' => self::ENCODING,
         ]);
+    }
+
+    /**
+     * The extra element types the client can render (Asgard protocol §6.1):
+     * a list of distinct snake_case type names, or absent for core types
+     * only. Null when it is malformed.
+     *
+     * A chrome type or server_region is never allowed in a fragment, so one
+     * the client lists is left out rather than kept (§9.3). Core types are
+     * always allowed and need not be kept either.
+     *
+     * @return list<string>|null
+     */
+    protected function elements(mixed $elements): ?array
+    {
+        if ($elements === null) {
+            return [];
+        }
+
+        if (! is_array($elements) || ! array_is_list($elements) || count($elements) > self::MAX_ELEMENTS) {
+            return null;
+        }
+
+        foreach ($elements as $type) {
+            if (! is_string($type) || strlen($type) > self::MAX_ELEMENT_LENGTH || ! preg_match('/^[a-z][a-z0-9_]*$/D', $type)) {
+                return null;
+            }
+        }
+
+        if (count(array_unique($elements)) !== count($elements)) {
+            return null;
+        }
+
+        return array_values(array_diff($elements, FragmentValidator::CORE_TYPES, FragmentValidator::NEVER_TYPES));
     }
 
     protected function error(int $status, string $error, string $message): JsonResponse

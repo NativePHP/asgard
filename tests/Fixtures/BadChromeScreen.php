@@ -16,6 +16,6 @@ class BadChromeScreen extends ServerScreen
 
     public function chrome(): array
     {
-        return ['nav_bar' => ['title' => 'Hi', 'colour' => 'red']];
+        return ['nav_bar' => ['title' => 'Hi', 'elevation' => 999]];
     }
 }

@@ -74,6 +74,17 @@ trait ReadsAsgardRequests
         return $secure;
     }
 
+    /**
+     * The extra element types this session's client said it can render,
+     * which a fragment may use beside the core ones (Asgard protocol §9.3).
+     *
+     * @return list<string>
+     */
+    protected function elements(): array
+    {
+        return $this->secure($this->container->make('request'))->elements;
+    }
+
     protected function regionName(mixed $region, string $field = 'region'): string
     {
         if (! is_string($region) || ! preg_match(self::REGION_PATTERN, $region)) {

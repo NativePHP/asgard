@@ -123,7 +123,7 @@ class PushVersions
     }
 
     /**
-     * A region's version token (protocol §8.1): a short, opaque digest of
+     * A region's version token (Asgard protocol §8.1): a short, opaque digest of
      * the counters it watches, the channels they belong to and the region
      * itself. It changes whenever a push would re-render the region, so a
      * device that holds the current token already has the current fragment.
@@ -172,16 +172,20 @@ class PushVersions
      * A shared region's answer, rendered by the first stream that needs it
      * and kept for SHARED_TTL seconds so every other stream reuses it. The
      * key holds everything the answer depends on: address, region,
-     * platform, canonical state and version. No user, which is why a
-     * shared region renders as a guest.
+     * platform, canonical state, version and the element types the client
+     * advertised, which decide what a fragment may use. No user, which is
+     * why a shared region renders as a guest.
      *
      * @param  array<string, mixed>  $state
      * @param  Closure(): array  $render
+     * @param  list<string>  $elements
      */
-    public function shared(string $address, string $region, string $platform, array $state, string $version, Closure $render): array
+    public function shared(string $address, string $region, string $platform, array $state, string $version, Closure $render, array $elements = []): array
     {
+        sort($elements, SORT_STRING);
+
         $key = self::SHARED_PREFIX.hash('sha256', json_encode(
-            [$address, $region, $platform, self::canonical($state), $version],
+            [$address, $region, $platform, self::canonical($state), $version, $elements],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
         ));
 

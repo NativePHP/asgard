@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\View;
+use Native\Asgard\Blade\Elements;
 use Native\Asgard\Blade\NativeTagPrecompiler;
 use Native\Asgard\Blade\RegionEngine;
 use Native\Asgard\Blade\RegionViews;
@@ -29,7 +30,8 @@ function region(string $blade, array $data = [], ?ServerComponent $component = n
 
     $component ??= new BladeScreen;
 
-    return FragmentValidator::validate(app(RegionViews::class)->resolve(view($name, $data), $component));
+    // These tests are about compiling tags, so the client takes every type.
+    return FragmentValidator::validate(app(RegionViews::class)->resolve(view($name, $data), $component), [...Elements::DEFAULT, 'gizmo', 'map_view']);
 }
 
 it('compiles prefixed and bare tags to the same nodes', function () {

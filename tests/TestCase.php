@@ -85,16 +85,19 @@ abstract class TestCase extends BaseTestCase
     }
 
     /**
-     * A real handshake, as a client would do it.
+     * A real handshake, as a client would do it. $elements is what the
+     * client lists in `elements`, or null to leave it out.
      *
+     * @param  list<string>|null  $elements
      * @return array{id: string, keys: SessionKeys}
      */
-    public function handshake(): array
+    public function handshake(?array $elements = null): array
     {
         [$private, $public] = Ecdh::generate();
 
         $response = $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
             'key' => self::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+            ...($elements === null ? [] : ['elements' => $elements]),
         ]))->assertOk();
 
         $serverPublic = Base64Url::decode($response->json('server_public'));

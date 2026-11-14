@@ -6,15 +6,28 @@ use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Node;
 
 /**
- * Turns whatever a region method returned into a clean §9.1 tree, or throws.
+ * Turns whatever a region method returned into a clean fragment, or throws
+ * (Asgard protocol §9).
  *
- * Rejects screen chrome and nested regions (§9.3), unknown node keys and
- * non-plain values. Strips props whose keys start with `_`, `native-` or
- * `native:`. Makes media URLs absolute (MediaUrls, §9.6).
+ * A node may only use a core type (§9.7) or one the client listed in
+ * `elements` at the handshake (§6.1). Screen chrome and regions are never
+ * allowed, even when listed (§9.3). Refuses nesting deeper than 64 levels
+ * (§9.1), siblings that share a key, a text node with other kinds of
+ * children, non-plain values and a web view that would load the app's own
+ * content. Node members it does not know are dropped (§5.3). Strips props
+ * whose keys start with `_`, `native-` or `native:`. Makes media URLs
+ * absolute (MediaUrls, §9.6).
  */
 final class FragmentValidator
 {
-    public const DENIED_TYPES = [
+    /** The types every client renders (§9.7). */
+    public const CORE_TYPES = ['column', 'row', 'stack', 'scroll_view', 'text', 'button', 'image', 'spacer', 'divider'];
+
+    /**
+     * Screen chrome and regions (§9.3), by the names NativePHP's elements
+     * use. Never allowed in a fragment, even when a client lists one.
+     */
+    public const NEVER_TYPES = [
         'top_bar', 'top_bar_action', 'top_bar_title',
         'bottom_nav', 'bottom_nav_item', 'bottom_bar',
         'side_nav', 'side_nav_item', 'side_nav_group', 'side_nav_header',
@@ -23,30 +36,37 @@ final class FragmentValidator
 
     public const CALLBACKS = ['on_press', 'on_long_press', 'on_double_tap', 'on_change', 'on_submit'];
 
-    private const MAX_DEPTH = 64;
+    /** The deepest a fragment may nest. The root is at depth 1 (§9.1). */
+    public const MAX_DEPTH = 64;
 
     /**
+     * @param  list<string>  $elements  the extra types the client advertised
      * @return array<string, mixed>|list<array<string, mixed>> one node, or a list of nodes
      */
-    public static function validate(mixed $fragment): array
+    public static function validate(mixed $fragment, array $elements = []): array
     {
+        $allowed = array_fill_keys(array_diff([...self::CORE_TYPES, ...$elements], self::NEVER_TYPES), true);
+
         if ($fragment instanceof Node) {
-            return self::node($fragment->toArray(), 'fragment', 0);
+            return self::node($fragment->toArray(), 'fragment', 1, $allowed);
         }
 
         if (is_array($fragment) && array_is_list($fragment)) {
-            return array_map(
-                fn ($child, $i) => self::node($child, "fragment[{$i}]", 0),
+            return self::siblings(array_map(
+                fn ($child, $i) => self::node($child, "fragment[{$i}]", 1, $allowed),
                 $fragment,
                 array_keys($fragment),
-            );
+            ), 'fragment');
         }
 
-        return self::node($fragment, 'fragment', 0);
+        return self::node($fragment, 'fragment', 1, $allowed);
     }
 
-    /** @return array<string, mixed> */
-    private static function node(mixed $node, string $path, int $depth): array
+    /**
+     * @param  array<string, true>  $allowed
+     * @return array<string, mixed>
+     */
+    private static function node(mixed $node, string $path, int $depth, array $allowed): array
     {
         if ($depth > self::MAX_DEPTH) {
             throw new InvalidFragment("{$path}: fragment is nested deeper than ".self::MAX_DEPTH.' levels.');
@@ -64,8 +84,11 @@ final class FragmentValidator
         if (! is_string($type) || ! preg_match('/^[a-z][a-z0-9_]*$/D', $type)) {
             throw new InvalidFragment("{$path}: 'type' must be a snake_case element name.");
         }
-        if (in_array($type, self::DENIED_TYPES, true)) {
+        if (in_array($type, self::NEVER_TYPES, true)) {
             throw new InvalidFragment("{$path}: element type [{$type}] is not allowed in a fragment. Regions cannot contain screen chrome or other regions.");
+        }
+        if (! isset($allowed[$type])) {
+            throw new InvalidFragment("{$path}: element type [{$type}] is not a core type and the client did not list it in elements.");
         }
 
         $clean = ['type' => $type];
@@ -106,19 +129,51 @@ final class FragmentValidator
                     }
                     $children = [];
                     foreach ($value as $i => $child) {
-                        $children[] = self::node($child, "{$path}.children[{$i}]", $depth + 1);
+                        $children[] = self::node($child, "{$path}.children[{$i}]", $depth + 1, $allowed);
                     }
+                    // A text node's children are inline runs of text (§9.7).
+                    if ($type === 'text' && array_diff(array_column($children, 'type'), ['text']) !== []) {
+                        throw new InvalidFragment("{$path}: a text node's children must be text nodes.");
+                    }
+                    $children = self::siblings($children, "{$path}.children");
                     if ($children !== []) {
                         $clean['children'] = $children;
                     }
                     break;
 
                 default:
-                    throw new InvalidFragment("{$path}: unknown node field [{$field}].");
+                    // A member this version does not know is ignored (§5.3),
+                    // and so is not sent on.
+                    break;
             }
         }
 
         return $clean;
+    }
+
+    /**
+     * Siblings must not share a key, and keys compare as strings, so 7 and
+     * "7" are the same key (§9.1).
+     *
+     * @param  list<array<string, mixed>>  $nodes
+     * @return list<array<string, mixed>>
+     */
+    private static function siblings(array $nodes, string $path): array
+    {
+        $seen = [];
+        foreach ($nodes as $node) {
+            if (! array_key_exists('key', $node)) {
+                continue;
+            }
+
+            $key = (string) $node['key'];
+            if (isset($seen[$key])) {
+                throw new InvalidFragment("{$path}: two siblings share the key [{$key}].");
+            }
+            $seen[$key] = true;
+        }
+
+        return $nodes;
     }
 
     /** @return array<string, mixed> */
@@ -145,10 +200,15 @@ final class FragmentValidator
                 : $value;
         }
 
-        // A php-mode web view loads the app's own routes, which is the app's
-        // call, not a server's. The device refuses it too.
-        if ($type === 'webview' && filter_var($clean['php'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-            throw new InvalidFragment("{$path}: a webview in a fragment cannot use php mode.");
+        // A web view that loads the app's own content is the app's to open,
+        // not a server's (§9.3). `local` turns that on. Older clients read
+        // `php`, so it is refused the same way.
+        if ($type === 'webview') {
+            foreach (['local', 'php'] as $prop) {
+                if (($clean[$prop] ?? false) !== false) {
+                    throw new InvalidFragment("{$path}: a webview in a fragment cannot load the app's own content ([{$prop}] must be false or absent).");
+                }
+            }
         }
 
         return $clean;

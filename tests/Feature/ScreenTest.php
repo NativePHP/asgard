@@ -126,7 +126,7 @@ it('compresses a screen body unless its attribute says not to', function () {
     expect(ComponentMetadata::for(BareScreen::class)->compresses('screen'))->toBeFalse();
 });
 
-it('refuses chrome with unknown fields as an invalid fragment', function () {
+it('refuses bad chrome as an invalid fragment', function () {
     $this->asgard(screenBody(['component' => 'native.asgard.tests.fixtures.bad_chrome_screen', 'state' => []]))
         ->assertStatus(500)
         ->assertJsonPath('error', 'invalid_fragment');
@@ -203,9 +203,15 @@ it('refuses an unsigned route list request', function () {
         ->assertStatus(419);
 });
 
-it('refuses a route list request with anything but the protocol', function (array $body) {
+it('refuses a route list request without protocol 1', function (array $body) {
     $this->asgard($body, 'QUERY', [], 'routes')->assertStatus(422);
-})->with([[['protocol' => 2]], [['protocol' => 1, 'component' => 'x']], [[]]]);
+})->with([[['protocol' => 2]], [['component' => 'x']], [[]]]);
+
+it('ignores route list members it does not know', function () {
+    $this->asgard(['protocol' => 1, 'component' => 'x', 'since' => 'abc'], 'QUERY', [], 'routes')
+        ->assertOk()
+        ->assertJsonPath('routes.0.screen', 'promos.show');
+});
 
 // ── Navigation slots ────────────────────────────────
 
@@ -278,6 +284,60 @@ it('validates everything the chrome builders can say', function () {
     expect($clean['tab_bar']['presentation'])->toBe(['id' => 'acme:pill', 'configuration' => ['radius' => 12]]);
 });
 
+it('ignores chrome members it does not know, and does not send them on', function () {
+    $clean = ChromeValidator::validate([
+        'layout' => 'tabs',
+        'nav_bar' => [
+            'title' => 'Hi',
+            'colour' => 'red',
+            'logo' => ['src' => 'https://x.test/logo.png', 'alt' => 'Logo'],
+            'search' => ['placeholder' => 'Find', 'voice' => true],
+            'actions' => [
+                ['id' => 'save', 'label' => 'Save', 'tooltip' => 'Save it'],
+                ['id' => 'sep', 'divider' => true, 'thickness' => 2],
+            ],
+        ],
+        'tab_bar' => [
+            'shape' => 'pill',
+            'presentation' => ['id' => 'acme', 'version' => 2],
+            'tabs' => [['id' => 'a', 'label' => 'A', 'sparkle' => true, 'search' => ['placeholder' => 'x', 'voice' => true]]],
+        ],
+    ]);
+
+    expect($clean)->toBe([
+        'nav_bar' => [
+            'title' => 'Hi',
+            'logo' => ['src' => 'https://x.test/logo.png'],
+            'search' => ['placeholder' => 'Find'],
+            'actions' => [
+                ['id' => 'save', 'label' => 'Save'],
+                ['id' => 'sep', 'divider' => true],
+            ],
+        ],
+        'tab_bar' => [
+            'presentation' => ['id' => 'acme'],
+            'tabs' => [['id' => 'a', 'label' => 'A', 'search' => ['placeholder' => 'x']]],
+        ],
+    ]);
+});
+
+it('still refuses an unknown member in a chrome slot or navigation', function (array $chrome) {
+    expect(fn () => ChromeValidator::validate($chrome))->toThrow(InvalidFragment::class);
+})->with([
+    'call slot' => [['nav_bar' => ['actions' => [['id' => 'x', 'on_press' => ['call' => 'save', 'args' => [], 'then' => 'x']]]]]],
+    'navigation' => [['tab_bar' => ['tabs' => [['id' => 'a', 'label' => 'A', 'on_press' => ['navigate' => '/x', 'modal' => true]]]]]],
+    'search query slot' => [['nav_bar' => ['search' => ['on_query' => ['call' => 'find', 'args' => [], 'debounce' => 1]]]]],
+]);
+
+it('checks chrome content slots against the client\'s element types', function () {
+    $chrome = ['bottom_bar' => ['type' => 'list_item', 'props' => ['headline' => 'Hi']]];
+
+    expect(fn () => ChromeValidator::validate($chrome))->toThrow(InvalidFragment::class, 'list_item');
+    expect(ChromeValidator::validate($chrome, ['list_item'])['bottom_bar']['type'])->toBe('list_item');
+    expect(fn () => ChromeValidator::validate(['nav_bar' => ['title_view' => ['type' => 'fab']]], ['fab']))
+        ->toThrow(InvalidFragment::class);
+});
+
 it('treats null chrome as none', function () {
     expect(ChromeValidator::validate(null))->toBe([]);
 });
@@ -285,9 +345,7 @@ it('treats null chrome as none', function () {
 it('refuses bad chrome', function (array $chrome) {
     expect(fn () => ChromeValidator::validate($chrome))->toThrow(InvalidFragment::class);
 })->with([
-    'unknown top-level key' => [['layout' => 'tabs']],
     'native not a bool' => [['native' => 1]],
-    'unknown nav bar key' => [['nav_bar' => ['colour' => 'red']]],
     'bad display mode' => [['nav_bar' => ['display_mode' => 'huge']]],
     'elevation out of range' => [['nav_bar' => ['elevation' => 999]]],
     'action without id' => [['nav_bar' => ['actions' => [['label' => 'x']]]]],

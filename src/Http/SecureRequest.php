@@ -7,7 +7,8 @@ use Native\Asgard\Security\SessionKeys;
 /**
  * A request that passed the checks in §7.6, as the controllers see it: the
  * session, its keys, the request's own signature (responses and stream
- * events are bound to it) and the decrypted body.
+ * events are bound to it), the decrypted body, and the extra element types
+ * the client advertised at the handshake.
  */
 final class SecureRequest
 {
@@ -22,5 +23,7 @@ final class SecureRequest
         public readonly string $signature,
         public readonly string $body,
         public readonly ?string $nonce,
+        /** @var list<string> */
+        public readonly array $elements = [],
     ) {}
 }

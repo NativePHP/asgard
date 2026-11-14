@@ -127,6 +127,8 @@ it('rejects malformed requests with 422', function (string $body) {
     'bad platform' => [json_encode(asgardBody(['platform' => 'web']))],
     'state is a list' => [json_encode(asgardBody(['state' => [1, 2]]))],
     'bad region' => [json_encode(asgardBody(['region' => '../x']))],
+    'address segment starting with a digit' => [json_encode(asgardBody(['component' => 'app.2native.home']))],
+    'address segment starting with an underscore' => [json_encode(asgardBody(['component' => '_app.home']))],
 ]);
 
 it('rejects denied fragment types', function (string $type) {

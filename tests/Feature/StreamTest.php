@@ -388,12 +388,19 @@ it('rejects bad stream requests before streaming', function (array $body, int $s
     'state type mismatch' => [streamBody(['state' => ['count' => '5']]), 422, 'invalid_request'],
     'state mismatch in a later subscription' => [streamBody([], [subscription(), subscription(['id' => 's2', 'state' => ['count' => '5']])]), 422, 'invalid_request'],
     'action' => [streamBody(['action' => ['call' => 'promote', 'args' => []]]), 422, 'invalid_request'],
+    'action in a subscription' => [streamBody([], [subscription() + ['action' => ['call' => 'promote', 'args' => []]]]), 422, 'invalid_request'],
     'unknown component' => [streamBody(['component' => 'app.native.screens.nope']), 404, 'unknown_component'],
     'unknown component in a later subscription' => [streamBody([], [subscription(), subscription(['id' => 's2', 'component' => 'app.native.screens.nope'])]), 404, 'unknown_component'],
     'undeclared region' => [streamBody(['regions' => ['greeting', 'secret']]), 404, 'unknown_component'],
     'static region' => [streamBody(['regions' => ['static']]), 404, 'unknown_component'],
     'invalid shared fragment' => [streamBody(['component' => 'app.native.screens.bad', 'regions' => ['shared_garbage']]), 500, 'invalid_fragment'],
 ]);
+
+it('ignores members it does not know, at the top level and in a subscription', function () {
+    $body = streamBody([], [subscription(['regions' => ['greeting']]) + ['priority' => 'high']]) + ['client' => 'midgard'];
+
+    expect(array_column(sseEvents($this->asgardStream($body)->assertOk()->streamedContent()), 'region'))->toBe(['greeting']);
+});
 
 it('allows exactly 16 regions', function () {
     // 16 distinct names that all fail lookup, so validation passes and the

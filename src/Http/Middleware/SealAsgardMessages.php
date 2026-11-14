@@ -37,11 +37,13 @@ class SealAsgardMessages
         }
 
         $session = (string) $request->headers->get('Asgard-Session-Id', '');
-        $keys = $session === '' ? null : $this->sessions->find($session);
+        $found = $session === '' ? null : $this->sessions->open($session);
 
-        if ($keys === null) {
+        if ($found === null) {
             return $this->plain(419, 'session_expired', 'Unknown or expired Asgard session. Handshake again.');
         }
+
+        $keys = $found['keys'];
 
         $now = now()->getTimestamp();
 
@@ -67,7 +69,7 @@ class SealAsgardMessages
         $this->sessions->touch($session);
 
         $request->attributes->set(SecureRequest::ATTRIBUTE, new SecureRequest(
-            $session, $keys, $opened['signature'], $opened['body'], $opened['nonce'],
+            $session, $keys, $opened['signature'], $opened['body'], $opened['nonce'], $found['elements'],
         ));
 
         $response = $next($request);

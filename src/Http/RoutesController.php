@@ -9,7 +9,7 @@ use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\ScreenRegistry;
 
 /**
- * The server's screen routes (protocol §12, "Routes"). Sealed like render,
+ * The server's screen routes (Asgard protocol §12.3). Sealed like render,
  * so only a client holding a session can read the list, and a proxy that
  * logs bodies learns nothing from it.
  *
@@ -37,7 +37,10 @@ class RoutesController
         ], 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     }
 
-    /** Protocol header and a body of exactly {"protocol": 1}. */
+    /**
+     * Protocol header and a body of {"protocol": 1}. Other members are
+     * ignored (§5.3).
+     */
     protected function routesBody(Request $request): void
     {
         $header = $request->headers->get('Asgard-Protocol');
@@ -47,8 +50,8 @@ class RoutesController
 
         $body = json_decode($this->secure($request)->body, true);
 
-        if (! is_array($body) || array_is_list($body) || ($body['protocol'] ?? null) !== self::PROTOCOL || count($body) !== 1) {
-            throw new InvalidRequest('Body must be {"protocol": 1}.');
+        if (! is_array($body) || array_is_list($body) || ($body['protocol'] ?? null) !== self::PROTOCOL) {
+            throw new InvalidRequest('Body must be a JSON object with "protocol": 1.');
         }
     }
 }
