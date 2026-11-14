@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Log;
 use Native\Asgard\Facades\Asgard;
 use Native\Asgard\Node;
 use Native\Asgard\Tests\Fixtures\BadFragments;
+use Native\Asgard\Tests\Fixtures\HeaderScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
 
 it('renders a region over QUERY', function () {
@@ -28,10 +29,34 @@ it('renders a region over QUERY', function () {
 });
 
 it('renders a region over POST with the method header', function () {
-    $this->asgard(asgardBody(['platform' => 'android']), 'POST', ['X-Asgard-Method' => 'QUERY'])
+    $this->asgard(asgardBody(['state' => ['name' => 'Simon', 'platform' => 'android']]), 'POST', ['X-Asgard-Method' => 'QUERY'])
         ->assertOk()
         ->assertJsonPath('fragment.children.0.props.text', 'Hello, Simon')
         ->assertJsonPath('fragment.children.3.props.text', 'Platform: android');
+});
+
+it('ignores a top-level platform from an older client', function () {
+    $this->asgard(asgardBody(['platform' => 'web']))
+        ->assertOk()
+        ->assertJsonPath('fragment.children.3.props.text', 'Platform: ios');
+});
+
+it('ignores state keys no property takes', function () {
+    $this->asgard(asgardBody(['state' => ['name' => 'Ada', 'app_version' => '2.1.0', 'device' => ['model' => 'x']]]))
+        ->assertOk()
+        ->assertJsonPath('fragment.children.0.props.text', 'Hello, Ada')
+        ->assertJsonPath('fragment.children.3.props.text', 'Platform: ');
+});
+
+it('verifies a request that carries extra headers, and lets the app read them', function () {
+    Asgard::component('app.native.screens.headers', HeaderScreen::class);
+
+    $this->asgard(asgardBody(['component' => 'app.native.screens.headers', 'region' => 'version']), 'QUERY', [
+        'X-App-Version' => '2.1.0',
+        'Accept-Language' => 'cy',
+    ])
+        ->assertOk()
+        ->assertJsonPath('fragment.props.text', '2.1.0 cy');
 });
 
 it('sets no cookies', function () {
@@ -124,7 +149,6 @@ it('rejects malformed requests with 422', function (string $body) {
     'list body' => ['[1,2]'],
     'wrong protocol' => [json_encode(asgardBody(['protocol' => 2]))],
     'missing component' => [json_encode(asgardBody(['component' => null]))],
-    'bad platform' => [json_encode(asgardBody(['platform' => 'web']))],
     'state is a list' => [json_encode(asgardBody(['state' => [1, 2]]))],
     'bad region' => [json_encode(asgardBody(['region' => '../x']))],
     'address segment starting with a digit' => [json_encode(asgardBody(['component' => 'app.2native.home']))],

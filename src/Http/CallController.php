@@ -21,7 +21,7 @@ use Native\Asgard\Support\PushVersions;
  * Runs the server half of a `#[Server]` method and answers with the props
  * it changed.
  *
- *     → {"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{…},"platform":"ios"}
+ *     → {"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{…}}
  *     ← {"protocol":1,"delta":{"roll":4}}
  *
  * The component is hydrated from the state the device sent, exactly as a
@@ -47,6 +47,11 @@ class CallController
     use ReadsAsgardRequests;
     use RendersRegions;
 
+    /**
+     * `platform` is no longer part of the protocol. Older clients still send
+     * it, and the changelog says servers ignore it, so it is let through
+     * here and never read. Any other unknown member is refused (§5.3).
+     */
     private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'platform'];
 
     public function __construct(
@@ -79,7 +84,7 @@ class CallController
         }
 
         $component = $this->container->make($class);
-        $component->setAsgardContext('', $payload['platform']);
+        $component->setAsgardContext('');
 
         try {
             Hydrator::hydrate($component, $payload['state']);
@@ -93,11 +98,11 @@ class CallController
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
 
-        return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before, $payload['platform']);
+        return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before);
     }
 
     /**
-     * @return array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, platform: string}
+     * @return array{component: string, method: string, args: list<mixed>, state: array<string, mixed>}
      */
     protected function payload(Request $request): array
     {
@@ -121,7 +126,6 @@ class CallController
             'method' => $body['method'],
             'args' => $body['args'],
             'state' => $this->state($body['state'] ?? null),
-            'platform' => $this->platform($body['platform'] ?? null),
         ];
     }
 }

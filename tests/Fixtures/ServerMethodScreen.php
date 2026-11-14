@@ -28,6 +28,8 @@ class ServerMethodScreen extends ServerComponent
 
     public $untyped = 'u';
 
+    public string $platform = '';
+
     public mixed $anything = null;
 
     #[Server]
@@ -35,7 +37,7 @@ class ServerMethodScreen extends ServerComponent
     {
         static::$calls[] = 'refreshChart';
         $this->range = $range;
-        $this->chart = [$range, $this->platform()];
+        $this->chart = [$range, $this->platform];
         // Set to what it already holds, so it is not in the delta.
         $this->loading = $this->loading;
     }
@@ -101,7 +103,7 @@ class ServerMethodScreen extends ServerComponent
     #[Region('rolled')]
     public function rolledRegion(): Node
     {
-        return Node::text('Rolled '.($this->roll ?? 'nothing').' on '.$this->platform().' in '.$this->region());
+        return Node::text('Rolled '.($this->roll ?? 'nothing').' on '.$this->platform.' in '.$this->region());
     }
 
     #[Server]

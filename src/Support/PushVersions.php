@@ -172,20 +172,27 @@ class PushVersions
      * A shared region's answer, rendered by the first stream that needs it
      * and kept for SHARED_TTL seconds so every other stream reuses it. The
      * key holds everything the answer depends on: address, region,
-     * platform, canonical state, version and the element types the client
+     * canonical state, version and the element types the client
      * advertised, which decide what a fragment may use. No user, which is
      * why a shared region renders as a guest.
+     *
+     * The state is the whole object the client sent, keys no property takes
+     * included. A client sends whatever it wants the server to know about it
+     * (its platform, say) as state, and a render may read it through a
+     * property on one class and ignore it on another, so leaving any key out
+     * could hand one client's render to another. HTTP headers are not part
+     * of the key, so a shared region must not depend on them.
      *
      * @param  array<string, mixed>  $state
      * @param  Closure(): array  $render
      * @param  list<string>  $elements
      */
-    public function shared(string $address, string $region, string $platform, array $state, string $version, Closure $render, array $elements = []): array
+    public function shared(string $address, string $region, array $state, string $version, Closure $render, array $elements = []): array
     {
         sort($elements, SORT_STRING);
 
         $key = self::SHARED_PREFIX.hash('sha256', json_encode(
-            [$address, $region, $platform, self::canonical($state), $version, $elements],
+            [$address, $region, self::canonical($state), $version, $elements],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
         ));
 

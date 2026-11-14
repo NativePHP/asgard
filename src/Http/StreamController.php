@@ -87,7 +87,6 @@ class StreamController
                 throw new InvalidRequest('A stream does not take an action. Send actions to the render endpoint.');
             }
 
-            $platform = $this->platform($body['platform'] ?? null);
             $subscriptions = $this->subscriptions($body['subscriptions'] ?? null);
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
@@ -109,7 +108,7 @@ class StreamController
 
         try {
             foreach ($subscriptions as $id => $subscription) {
-                $subscriptions[$id]['channels'] = $this->channels($subscription['class'], $platform, $subscription['state']);
+                $subscriptions[$id]['channels'] = $this->channels($subscription['class'], $subscription['state']);
             }
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
@@ -136,7 +135,7 @@ class StreamController
                 }
 
                 try {
-                    $answer = $this->shared($subscription, $region, $version, $platform, $elements);
+                    $answer = $this->shared($subscription, $region, $version, $elements);
                 } catch (InvalidRequest $e) {
                     return $this->error(422, 'invalid_request', $e->getMessage());
                 } catch (InvalidFragment $e) {
@@ -150,7 +149,7 @@ class StreamController
         $secure = $this->secure($request);
 
         return new StreamedResponse(
-            fn () => $this->stream($secure, $subscriptions, $watches, $platform, $seen, $initial),
+            fn () => $this->stream($secure, $subscriptions, $watches, $seen, $initial),
             200,
             [
                 'Content-Type' => 'text/event-stream',
@@ -289,15 +288,15 @@ class StreamController
      * @param  list<string>  $elements
      * @return array{fragment: array, chrome?: object}|null
      */
-    protected function shared(array $subscription, string $region, string $version, string $platform, array $elements): ?array
+    protected function shared(array $subscription, string $region, string $version, array $elements): ?array
     {
         if (! ComponentMetadata::for($subscription['class'])->shares($region)) {
             return null;
         }
 
         $answer = $this->versions->shared(
-            $subscription['component'], $region, $platform, $subscription['state'], $version,
-            fn () => $this->asGuest(fn () => $this->render($subscription['class'], $subscription['methods'][$region], $region, $platform, $subscription['state'], $elements)),
+            $subscription['component'], $region, $subscription['state'], $version,
+            fn () => $this->asGuest(fn () => $this->render($subscription['class'], $subscription['methods'][$region], $region, $subscription['state'], $elements)),
             $elements,
         );
 
@@ -337,10 +336,10 @@ class StreamController
      * @param  list<string>  $elements
      * @return array{fragment: array<string, mixed>|list<array<string, mixed>>, chrome?: object}
      */
-    protected function render(string $class, string $method, string $region, string $platform, array $state, array $elements): array
+    protected function render(string $class, string $method, string $region, array $state, array $elements): array
     {
         $component = $this->container->make($class);
-        $component->setAsgardContext($region, $platform);
+        $component->setAsgardContext($region);
 
         Hydrator::hydrate($component, $state);
 
@@ -364,7 +363,7 @@ class StreamController
      * @param  array<string, array{component: list<int>, regions: array<string, list<int>>}>  $seen
      * @param  list<array{string, string, string, array{fragment: array, chrome?: object}|null}>  $initial
      */
-    protected function stream(SecureRequest $secure, array $subscriptions, array $watches, string $platform, array $seen, array $initial): void
+    protected function stream(SecureRequest $secure, array $subscriptions, array $watches, array $seen, array $initial): void
     {
         $lifetime = max(1, (int) config('asgard.stream.lifetime', 300));
         $poll = max(10, (int) config('asgard.stream.poll_ms', 500));
@@ -417,7 +416,7 @@ class StreamController
                     $version = PushVersions::token($subscription['component'], $region, $subscription['channels'], $current[$id]);
 
                     try {
-                        $answer = $this->shared($subscription, $region, $version, $platform, $secure->elements);
+                        $answer = $this->shared($subscription, $region, $version, $secure->elements);
                     } catch (Throwable $e) {
                         // Headers are long gone, so there is no error response to
                         // give. Report it and leave the device on its last fragment.

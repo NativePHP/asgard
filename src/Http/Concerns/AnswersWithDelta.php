@@ -30,7 +30,7 @@ trait AnswersWithDelta
      * @param  list<string>  $channels
      * @param  array<string, string>  $before
      */
-    protected function answer(ServerComponent $component, ComponentMetadata $metadata, string $address, string $method, array $channels, array $before, string $platform): JsonResponse
+    protected function answer(ServerComponent $component, ComponentMetadata $metadata, string $address, string $method, array $channels, array $before): JsonResponse
     {
         try {
             $delta = $this->delta($component, $before);
@@ -44,7 +44,7 @@ trait AnswersWithDelta
 
         $answer = ['protocol' => self::PROTOCOL, 'delta' => (object) $delta];
 
-        $more = $this->refreshed($component, $metadata, $address, $channels, $platform);
+        $more = $this->refreshed($component, $metadata, $address, $channels);
 
         if ($more instanceof JsonResponse) {
             return $more;

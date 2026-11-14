@@ -307,6 +307,25 @@ it('renders a shared region once per state and version, for every stream', funct
     expect(CounterScreen::$renders)->toBe(3);
 });
 
+it('keys a shared render by state keys no property takes', function () {
+    CounterScreen::$renders = 0;
+    $state = fn (array $extra) => streamBody(['component' => 'app.native.screens.counter', 'regions' => ['tick'], 'state' => ['count' => 5, ...$extra]]);
+
+    $this->asgardStream($state(['platform' => 'ios']))->streamedContent();
+    $this->asgardStream($state(['platform' => 'ios']))->streamedContent();
+    $this->asgardStream($state(['platform' => 'android']))->streamedContent();
+    $this->asgardStream($state([]))->streamedContent();
+
+    // CounterScreen has no platform property, and still each value is its own render.
+    expect(CounterScreen::$renders)->toBe(3);
+});
+
+it('ignores a top-level platform from an older client', function () {
+    $response = $this->asgardStream(streamBody(['platform' => 'web']))->assertOk();
+
+    expect(sseEvents($response->streamedContent()))->not->toBe([]);
+});
+
 it('sends a ping comment every 5 seconds', function () {
     config()->set('asgard.stream.lifetime', 12);
 
@@ -363,7 +382,7 @@ it('rejects bad stream requests before streaming', function (array $body, int $s
     'subscription is a list' => [streamBody([], [['s1', 'app.native.screens.home']]), 422, 'invalid_request'],
     'subscription is a string' => [streamBody([], ['s1']), 422, 'invalid_request'],
     'unknown subscription field' => [streamBody([], [subscription(['action' => ['call' => 'promote', 'args' => []]])]), 422, 'invalid_request'],
-    'old single-component body' => [['protocol' => 1, 'component' => 'app.native.screens.home', 'regions' => ['greeting'], 'state' => [], 'platform' => 'ios'], 422, 'invalid_request'],
+    'old single-component body' => [['protocol' => 1, 'component' => 'app.native.screens.home', 'regions' => ['greeting'], 'state' => []], 422, 'invalid_request'],
     'missing id' => [streamBody([], [array_diff_key(subscription(), ['id' => 1])]), 422, 'invalid_request'],
     'empty id' => [streamBody(['id' => '']), 422, 'invalid_request'],
     'id too long' => [streamBody(['id' => str_repeat('a', 33)]), 422, 'invalid_request'],
@@ -383,7 +402,6 @@ it('rejects bad stream requests before streaming', function (array $body, int $s
     'version for another region' => [streamBody(['versions' => ['tags' => 'abc']]), 422, 'invalid_request'],
     'version is not a string' => [streamBody(['versions' => ['greeting' => 5]]), 422, 'invalid_request'],
     'version is not a token' => [streamBody(['versions' => ['greeting' => 'a b']]), 422, 'invalid_request'],
-    'bad platform' => [streamBody(['platform' => 'web']), 422, 'invalid_request'],
     'state is a list' => [streamBody(['state' => [1, 2]]), 422, 'invalid_request'],
     'state type mismatch' => [streamBody(['state' => ['count' => '5']]), 422, 'invalid_request'],
     'state mismatch in a later subscription' => [streamBody([], [subscription(), subscription(['id' => 's2', 'state' => ['count' => '5']])]), 422, 'invalid_request'],

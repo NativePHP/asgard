@@ -26,10 +26,10 @@ trait RendersRegions
      *
      * @return array{fragment: mixed, chrome?: object}|JsonResponse
      */
-    protected function renderPart(ServerComponent $component, ComponentMetadata $metadata, string $region, string $platform): array|JsonResponse
+    protected function renderPart(ServerComponent $component, ComponentMetadata $metadata, string $region): array|JsonResponse
     {
         $method = $metadata->regions[$region];
-        $component->setAsgardContext($region, $platform);
+        $component->setAsgardContext($region);
 
         $result = $this->container->call([$component, $method]);
 
@@ -60,13 +60,13 @@ trait RendersRegions
      * @param  list<string>  $channels
      * @return array<string, array<string, mixed>>|JsonResponse
      */
-    protected function renderParts(ServerComponent $component, ComponentMetadata $metadata, string $address, array $regions, array $channels, string $platform): array|JsonResponse
+    protected function renderParts(ServerComponent $component, ComponentMetadata $metadata, string $address, array $regions, array $channels): array|JsonResponse
     {
         $tokens = $this->tokens($address, $regions, $channels);
         $parts = [];
 
         foreach ($regions as $region) {
-            $part = $this->renderPart($component, $metadata, $region, $platform);
+            $part = $this->renderPart($component, $metadata, $region);
 
             if ($part instanceof JsonResponse) {
                 return $part;
@@ -89,14 +89,14 @@ trait RendersRegions
      * @param  list<string>  $channels
      * @return array{fragments: array<string, array<string, mixed>>, refresh: list<array{component: string, region?: string}>}|JsonResponse
      */
-    protected function refreshed(ServerComponent $component, ComponentMetadata $metadata, string $address, array $channels, string $platform, ?string $skip = null): array|JsonResponse
+    protected function refreshed(ServerComponent $component, ComponentMetadata $metadata, string $address, array $channels, ?string $skip = null): array|JsonResponse
     {
         $asked = $component->asgardRefreshes();
         $regions = array_values(array_filter($asked['regions'], fn (string $region) => $region !== $skip));
 
         $fragments = $regions === []
             ? []
-            : $this->renderParts($component, $metadata, $address, $regions, $channels, $platform);
+            : $this->renderParts($component, $metadata, $address, $regions, $channels);
 
         if ($fragments instanceof JsonResponse) {
             return $fragments;

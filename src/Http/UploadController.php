@@ -32,7 +32,7 @@ use RuntimeException;
  *     the rest             the file's bytes, exactly `size` of them
  *
  *     header: {"protocol":1,"component":"app.native.screens.home",
- *              "method":"savePhoto","args":[],"state":{…},"platform":"ios",
+ *              "method":"savePhoto","args":[],"state":{…},
  *              "filename":"IMG_0001.jpg","mime":"image/jpeg","size":123456}
  *
  * The bytes go to a temp file whose name the server picks. The device's
@@ -58,6 +58,7 @@ class UploadController
     /** The largest header a frame may carry. State rides in it. */
     public const HEADER_MAX = 1024 * 1024;
 
+    /** `platform` is let through and never read, as CallController says. */
     private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'platform', 'filename', 'mime', 'size'];
 
     public function __construct(
@@ -112,7 +113,7 @@ class UploadController
             $file = new UploadedFile($path, $payload['filename'], $mime, UPLOAD_ERR_OK, true);
 
             $component = $this->container->make($class);
-            $component->setAsgardContext('', $payload['platform']);
+            $component->setAsgardContext('');
 
             try {
                 Hydrator::hydrate($component, $payload['state']);
@@ -125,7 +126,7 @@ class UploadController
                 return $this->error(422, 'invalid_request', $e->getMessage());
             }
 
-            return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before, $payload['platform']);
+            return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before);
         } finally {
             // The method may have moved it already.
             if (is_file($path)) {
@@ -137,7 +138,7 @@ class UploadController
     /**
      * The header, checked, and where the file's bytes start in the body.
      *
-     * @return array{0: array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, platform: string, filename: string, size: int}, 1: int}
+     * @return array{0: array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, filename: string, size: int}, 1: int}
      */
     protected function frame(Request $request): array
     {
@@ -204,7 +205,6 @@ class UploadController
             'method' => $head['method'],
             'args' => $head['args'],
             'state' => $this->state($head['state'] ?? null),
-            'platform' => $this->platform($head['platform'] ?? null),
             'filename' => $this->filename($head['filename'] ?? null),
             'size' => $size,
         ], $offset];

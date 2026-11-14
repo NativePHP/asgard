@@ -10,7 +10,7 @@ use Native\Asgard\Tests\TestCase;
 
 function rowsBody(string $region, int $count = 200, array $extra = []): array
 {
-    return ['protocol' => 1, 'component' => 'app.native.screens.rows', 'region' => $region, 'state' => ['count' => $count], 'platform' => 'ios', ...$extra];
+    return ['protocol' => 1, 'component' => 'app.native.screens.rows', 'region' => $region, 'state' => ['count' => $count], ...$extra];
 }
 
 /** Raw `data` lines of the fragment events in an SSE body, by region order. */
@@ -189,7 +189,7 @@ it('leaves an action answer uncompressed when an inline region opted out', funct
 });
 
 it('never compresses a call answer, even with fragments that allow it', function (array $regions) {
-    $body = ['protocol' => 1, 'component' => 'app.native.screens.rows', 'method' => 'regrow', 'args' => $regions, 'state' => ['count' => 200], 'platform' => 'ios'];
+    $body = ['protocol' => 1, 'component' => 'app.native.screens.rows', 'method' => 'regrow', 'args' => $regions, 'state' => ['count' => 200]];
 
     $response = $this->asgard($body, 'QUERY', [], 'call')->assertOk();
 

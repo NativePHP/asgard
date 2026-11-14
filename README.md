@@ -92,8 +92,37 @@ without touching the server.
 
 A region method may return a `Node`, a list of `Node`s, plain arrays in the
 node shape, or a Blade view (see below). Region methods are resolved through the container, so they can
-type-hint dependencies. `$this->platform()` and `$this->region()` are
-available inside them.
+type-hint dependencies. `$this->region()` is available inside them.
+
+### What the client tells you about itself
+
+The protocol has no field for the client's platform, app version or anything
+else about it. A client that wants the server to know such a thing sends it
+in the state, and you read it like any other state, with a public property:
+
+```php
+public string $platform = '';   // midgard sends this by default
+```
+
+A state key with no matching property is ignored (and logged under
+`app.debug`), so a client can send keys only some components care about. The
+key still counts as state: a [shared region](#shared-regions) is cached per
+whole state, so two clients that differ only in a key you never read still get
+their own renders.
+
+Plain HTTP headers the app adds work too, through Laravel as usual:
+
+```php
+request()->header('X-App-Version');
+```
+
+Apart from `Authorization`, which the signature covers when it is there, they
+are not part of the signature, so the signature still verifies whatever the app
+adds. They are covered by TLS but not by
+Asgard's body encryption, so do not put anything in them that the encryption is
+meant to protect. And a shared region's cache key does not include them, so a
+shared region must not depend on a header. Send it in the state instead when it
+should change what renders.
 
 ### Blade region views
 
@@ -546,15 +575,16 @@ class PromoScreen extends ServerScreen { ... }
 
 A shared region renders the same for everyone with the same state. For those
 the stream sends a `fragment` event with the new fragment in it, so devices
-skip the round trip. It is rendered once per address, region, platform, state
-and version, by the first stream that needs it, and kept in the push store for
+skip the round trip. It is rendered once per address, region, state (every
+key the client sent, whether a property takes it or not), version and set of
+element types the client advertised, by the first stream that needs it, and kept in the push store for
 60 seconds for every other stream to reuse. Each stream still seals it for its
 own session.
 
 The cache key has no user in it, so a shared region renders on the stream with
 nobody signed in: `auth()`, the default guard and `$request->user()` all see a
-guest. A shared region must not depend on the user or on secrets (and must not
-name a guard of its own to get round that). Because it holds nothing private,
+guest. A shared region must not depend on the user, on secrets or on request
+headers (and must not name a guard of its own to get round that). Because it holds nothing private,
 compressing it is safe. On the render endpoint a shared region renders as
 usual, with the user.
 
@@ -740,7 +770,7 @@ QUERY, so use the POST form there.
 **Request body:**
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon"},"platform":"ios"}
+{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon","platform":"ios"}}
 ```
 
 An action request adds `action`. `call` and `args` are both required.
@@ -748,7 +778,7 @@ An action request adds `action`. `call` and `args` are both required.
 `"client"`, is a 422.
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon"},"platform":"ios",
+{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon","platform":"ios"},
  "action":{"call":"wave","args":[1]}}
 ```
 
@@ -757,12 +787,14 @@ them in one request, with `regions` instead of `region`. It holds 1 to 16
 distinct names, and cannot carry an `action`:
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon"},"platform":"ios"}
+{"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon","platform":"ios"}}
 ```
 
 `component` is the address the client component named with
 `#[ServerAddress]`, or its FQCN in dot notation with each segment
-snake-cased. `platform` is `ios` or `android`. A malformed request gets 422
+snake-cased. There is no `platform` member: a client sends what it wants the
+server to know about itself in `state`. One that still sends `platform` has it
+ignored, as any unknown member is. A malformed request gets 422
 `{"error":"invalid_request","message":"…"}`.
 
 **Response 200:**
@@ -822,11 +854,11 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 action, its signature must carry a nonce.
 
 **Request body:** the component, the `#[Server]` method, its args by position,
-the device's state after its own body ran, and the platform. Nothing else is
-allowed.
+and the device's state after its own body ran. Nothing else is allowed, apart
+from a `platform` member from an older client, which is ignored.
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{"rolling":true},"platform":"ios"}
+{"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{"rolling":true,"platform":"ios"}}
 ```
 
 **Response 200:** the props the method changed. `delta` is always an object,
@@ -866,7 +898,7 @@ the rest             the file, exactly `size` bytes
 ```
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","method":"savePhoto","args":[],"state":{"name":"Simon"},"platform":"ios","filename":"IMG_0001.jpg","mime":"image/jpeg","size":2483113}
+{"protocol":1,"component":"app.native.screens.home","method":"savePhoto","args":[],"state":{"name":"Simon","platform":"ios"},"filename":"IMG_0001.jpg","mime":"image/jpeg","size":2483113}
 ```
 
 `filename` and `mime` are what the device says, and only informational.
@@ -889,13 +921,13 @@ upload a third bigger and need it decoded in memory as well.
 **Endpoint:** `{base}/_asgard/stream`, in the same two forms as render
 (`QUERY`, or `POST` with `X-Asgard-Method: QUERY`).
 
-**Request body:** the device's platform and 1 to 16 subscriptions, one per
+**Request body:** 1 to 16 subscriptions, one per
 component instance on screen. No `action`.
 
 ```json
-{"protocol":1,"platform":"ios","subscriptions":[
+{"protocol":1,"subscriptions":[
  {"id":"3f9a0c1d2e4b5a6c","component":"app.native.screens.home","regions":["greeting","stats"],
-  "state":{"name":"Simon"},"versions":{"greeting":"q3V0bG9yZW1pcHN1"}}]}
+  "state":{"name":"Simon","platform":"ios"},"versions":{"greeting":"q3V0bG9yZW1pcHN1"}}]}
 ```
 
 - `id` is the device's own name for the subscription: 1 to 32 characters of

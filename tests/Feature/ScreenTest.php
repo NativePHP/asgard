@@ -34,7 +34,6 @@ function screenBody(array $overrides = []): array
         'component' => 'promos.show',
         'region' => 'screen',
         'state' => ['id' => '42'],
-        'platform' => 'ios',
     ], $overrides);
 }
 
@@ -139,7 +138,7 @@ it('sends chrome with each pushed screen event', function () {
     $clock->onSleep[1] = fn () => Asgard::push(PromoScreen::class);
 
     $content = $this->asgardStream(streamBody([
-        'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'], 'platform' => 'android',
+        'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '3'],
     ]))->assertOk()->streamedContent();
 
     $events = array_values(array_filter(sseBlocks($content), 'is_array'));

@@ -25,6 +25,9 @@ class HomeScreen extends ServerComponent
 
     public $untyped = 'u';
 
+    /** Sent by the app in its state, as any client fact is. */
+    public string $platform = '';
+
     #[Region('greeting')]
     public function greeting(): Node
     {
@@ -32,7 +35,7 @@ class HomeScreen extends ServerComponent
             Node::text("Hello, {$this->name}")->key('hello'),
             Node::text("Role: {$this->role}"),
             Node::text("Count: {$this->count}"),
-            Node::text('Platform: '.$this->platform()),
+            Node::text('Platform: '.$this->platform),
         )->class('p-4 gap-2');
     }
 

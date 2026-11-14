@@ -308,7 +308,7 @@ it('binds $this and exposes public properties as variables', function () {
     $component->name = 'Ada';
     $component->count = 3;
 
-    expect(region('<text>{{ $this->name }} {{ $name }} {{ $count }} {{ $this->platform() }}</text>', [], $component))
+    expect(region('<text>{{ $this->name }} {{ $name }} {{ $count }} {{ $this->region() }}</text>', [], $component))
         ->toBe(['type' => 'text', 'props' => ['text' => 'Ada Ada 3']]);
     expect(region('<text>{{ $name }}</text>', ['name' => 'passed'], $component)['props']['text'])->toBe('passed');
 });

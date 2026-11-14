@@ -105,15 +105,6 @@ trait ReadsAsgardRequests
         return $state;
     }
 
-    protected function platform(mixed $platform): string
-    {
-        if (! in_array($platform, ['ios', 'android'], true)) {
-            throw new InvalidRequest('platform must be ios or android.');
-        }
-
-        return $platform;
-    }
-
     /**
      * The channels a component joins, from channels() on an instance
      * hydrated with this state. The app's middleware has already run, so
@@ -129,10 +120,10 @@ trait ReadsAsgardRequests
      * @param  array<string, mixed>  $state
      * @return list<string>
      */
-    protected function channels(string $class, string $platform, array $state): array
+    protected function channels(string $class, array $state): array
     {
         $component = $this->container->make($class);
-        $component->setAsgardContext('', $platform);
+        $component->setAsgardContext('');
 
         Hydrator::hydrate($component, $state);
 

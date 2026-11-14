@@ -21,7 +21,6 @@ function uploadHeader(array $overrides = [], string $bytes = ''): array
         'method' => 'savePhoto',
         'args' => [],
         'state' => ['caption' => '', 'count' => 0],
-        'platform' => 'ios',
         'filename' => 'IMG_0001.png',
         'mime' => 'image/png',
         'size' => strlen($bytes),
@@ -58,6 +57,10 @@ it('hands the file to an #[Upload] method and answers with the delta', function 
         ->and($call['mime'])->toBe('image/png')
         ->and($call['size'])->toBe(strlen(png()))
         ->and($call['bytes'])->toBe(png());
+});
+
+it('ignores a platform member from an older client', function () {
+    $this->asgard(uploadFrame(['platform' => 'web']), 'QUERY', [], 'upload')->assertOk();
 });
 
 it('runs over POST with the method header', function () {
@@ -227,7 +230,7 @@ it('keeps #[Upload] out of the #[Server] and #[Action] allowlists', function () 
         ->and($metadata->uploads['savePhoto']['maxSize'])->toBe(1024)
         ->and($metadata->uploads['savePhoto']['mimes'])->toBe(['image/png', 'image/jpeg']);
 
-    $this->asgard(['protocol' => 1, 'component' => 'app.native.screens.uploads', 'method' => 'savePhoto', 'args' => [], 'state' => [], 'platform' => 'ios'], 'QUERY', [], 'call')
+    $this->asgard(['protocol' => 1, 'component' => 'app.native.screens.uploads', 'method' => 'savePhoto', 'args' => [], 'state' => []], 'QUERY', [], 'call')
         ->assertNotFound()
         ->assertExactJson(['error' => 'unknown_method']);
 });
@@ -284,7 +287,6 @@ it('refuses a malformed frame', function (string $body) {
         return pack('N', strlen($h)).$h.png();
     })()],
     'bad method name' => [uploadFrame(['method' => '../savePhoto'])],
-    'bad platform' => [uploadFrame(['platform' => 'web'])],
     'protocol 2' => [uploadFrame(['protocol' => 2])],
     'filename not a string' => [uploadFrame(['filename' => ['a']])],
     'mime not a string' => [uploadFrame(['mime' => 7])],

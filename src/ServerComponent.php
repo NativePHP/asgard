@@ -22,8 +22,6 @@ abstract class ServerComponent
 {
     private string $asgardRegion = '';
 
-    private string $asgardPlatform = '';
-
     /** At most this many regions rendered inline, and hints sent, per answer. */
     public const MAX_REFRESH = 16;
 
@@ -34,10 +32,9 @@ abstract class ServerComponent
     private array $asgardHints = [];
 
     /** @internal */
-    final public function setAsgardContext(string $region, string $platform): void
+    final public function setAsgardContext(string $region): void
     {
         $this->asgardRegion = $region;
-        $this->asgardPlatform = $platform;
     }
 
     /**
@@ -174,11 +171,5 @@ abstract class ServerComponent
     final protected function region(): string
     {
         return $this->asgardRegion;
-    }
-
-    /** 'ios' or 'android'. */
-    final protected function platform(): string
-    {
-        return $this->asgardPlatform;
     }
 }

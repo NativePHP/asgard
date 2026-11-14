@@ -19,7 +19,7 @@ function nestedArg(int $levels): array
 
 function actionBody(array $action, array $overrides = []): array
 {
-    return asgardBody(array_merge(['state' => ['name' => 'Simon', 'count' => 2], 'action' => $action], $overrides));
+    return asgardBody(array_merge(['state' => ['name' => 'Simon', 'count' => 2, 'platform' => 'ios'], 'action' => $action], $overrides));
 }
 
 it('runs a marked action and renders the region it changed', function () {
@@ -100,8 +100,8 @@ it('refuses methods that are not actions with one 404', function (string $call, 
     'unmarked region method' => ['greeting'],
     'region that is also marked as an action' => ['both'],
     'public method without attributes' => ['secret'],
-    'ServerComponent method' => ['setAsgardContext', ['x', 'ios']],
-    'ServerComponent protected method' => ['platform'],
+    'ServerComponent method' => ['setAsgardContext', ['x']],
+    'ServerComponent protected method' => ['region'],
     'static' => ['staticAction'],
     'protected' => ['protectedAction'],
     'private' => ['privateAction'],
@@ -258,7 +258,7 @@ it('passes valid callback objects through a fragment', function (array $callback
 
 it('refuses a component address or region with a trailing newline', function () {
     $send = fn (array $body) => $this->asgard(
-        json_encode(['protocol' => 1, 'state' => [], 'platform' => 'ios', ...$body]), 'POST', ['X-Asgard-Method' => 'QUERY'],
+        json_encode(['protocol' => 1, 'state' => [], ...$body]), 'POST', ['X-Asgard-Method' => 'QUERY'],
     );
 
     $send(['component' => "app.native.screens.home\n", 'region' => 'greeting'])->assertStatus(422);

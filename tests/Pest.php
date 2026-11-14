@@ -11,8 +11,7 @@ function asgardBody(array $overrides = []): array
         'protocol' => 1,
         'component' => 'app.native.screens.home',
         'region' => 'greeting',
-        'state' => ['name' => 'Simon'],
-        'platform' => 'ios',
+        'state' => ['name' => 'Simon', 'platform' => 'ios'],
     ], $overrides);
 }
 
@@ -22,7 +21,7 @@ function subscription(array $overrides = []): array
         'id' => 's1',
         'component' => 'app.native.screens.home',
         'regions' => ['greeting', 'list'],
-        'state' => ['name' => 'Simon'],
+        'state' => ['name' => 'Simon', 'platform' => 'ios'],
     ], $overrides);
 }
 
@@ -37,7 +36,6 @@ function streamBody(array $overrides = [], ?array $subscriptions = null): array
 
     return array_merge([
         'protocol' => 1,
-        'platform' => 'ios',
         'subscriptions' => $subscriptions ?? [subscription($own)],
     ], array_diff_key($overrides, $own));
 }

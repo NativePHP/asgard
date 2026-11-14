@@ -14,8 +14,7 @@ function serverCall(string $method, array $args = [], array $overrides = []): ar
         'component' => 'app.native.screens.server_methods',
         'method' => $method,
         'args' => $args,
-        'state' => ['range' => '7d'],
-        'platform' => 'ios',
+        'state' => ['range' => '7d', 'platform' => 'ios'],
     ], $overrides);
 }
 
@@ -192,7 +191,7 @@ it('sends a batch of one as a batch answer', function () {
 });
 
 it('carries a server screen\'s chrome in its batch part', function () {
-    $body = ['protocol' => 1, 'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '7'], 'platform' => 'ios'];
+    $body = ['protocol' => 1, 'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '7']];
 
     $batch = $this->asgard($body)->assertOk();
     $single = $this->asgard([...array_diff_key($body, ['regions' => 1]), 'region' => 'screen'])->assertOk();

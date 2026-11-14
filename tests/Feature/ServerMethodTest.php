@@ -12,8 +12,7 @@ function callBody(array $overrides = []): array
         'component' => 'app.native.screens.server_methods',
         'method' => 'refreshChart',
         'args' => ['30d'],
-        'state' => ['range' => '7d', 'loading' => true, 'chart' => []],
-        'platform' => 'ios',
+        'state' => ['range' => '7d', 'loading' => true, 'chart' => [], 'platform' => 'ios'],
     ], $overrides);
 }
 
@@ -26,6 +25,12 @@ it('runs a #[Server] method and answers with only the props it changed', functio
         ]);
 
     expect(ServerMethodScreen::$calls)->toBe(['refreshChart']);
+});
+
+it('ignores a platform member from an older client, and reads the one in state', function () {
+    $this->asgard(callBody(['platform' => 'web']), 'QUERY', [], 'call')
+        ->assertOk()
+        ->assertJsonPath('delta.chart', ['30d', 'ios']);
 });
 
 it('runs over POST with the method header', function () {
@@ -43,7 +48,7 @@ it('answers an empty delta as an object', function () {
 
 it('compares against the hydrated state, not the class defaults', function () {
     // The device already holds 30d, so setting it again is not a change.
-    $response = $this->asgard(callBody(['state' => ['range' => '30d', 'chart' => ['30d', 'ios']]]), 'QUERY', [], 'call')
+    $response = $this->asgard(callBody(['state' => ['range' => '30d', 'chart' => ['30d', 'ios'], 'platform' => 'ios']]), 'QUERY', [], 'call')
         ->assertOk();
 
     expect($response->getContent())->toBe('{"protocol":1,"delta":{}}');
@@ -89,8 +94,8 @@ it('refuses methods that are not #[Server] methods with one 404', function (stri
     'protected' => ['protectedServer'],
     'private' => ['privateServer'],
     'object param' => ['withObject', [[]]],
-    'ServerComponent method' => ['setAsgardContext', ['x', 'ios']],
-    'ServerComponent protected method' => ['platform'],
+    'ServerComponent method' => ['setAsgardContext', ['x']],
+    'ServerComponent protected method' => ['region'],
     'magic __construct' => ['__construct'],
     'missing method' => ['doesNotExist'],
     'wrong case' => ['ROLLDIE'],
@@ -139,7 +144,6 @@ it('refuses a malformed call body', function (array $overrides, ?string $drop = 
     'args as an object' => [['args' => ['a' => 1]]],
     'a bad method name' => [['method' => 'refresh-chart']],
     'an unknown field' => [['region' => 'chart']],
-    'a bad platform' => [['platform' => 'unknown']],
     'state that does not fit' => [['state' => ['range' => 7]]],
     'state with an object-shaped list' => [['state' => [1, 2]]],
     'protocol 2' => [['protocol' => 2]],

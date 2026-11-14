@@ -66,7 +66,7 @@ class RenderController
         }
 
         $component = $this->container->make($class);
-        $component->setAsgardContext($payload['region'] ?? '', $payload['platform']);
+        $component->setAsgardContext($payload['region'] ?? '');
 
         try {
             Hydrator::hydrate($component, $payload['state']);
@@ -90,7 +90,7 @@ class RenderController
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
 
-        $part = $this->renderPart($component, $metadata, $payload['region'], $payload['platform']);
+        $part = $this->renderPart($component, $metadata, $payload['region']);
 
         if ($part instanceof JsonResponse) {
             return $part;
@@ -107,7 +107,7 @@ class RenderController
 
         // Only an action can call refresh(). What it asked for rides along.
         if ($action) {
-            $more = $this->refreshed($component, $metadata, $payload['component'], $channels, $payload['platform'], $payload['region']);
+            $more = $this->refreshed($component, $metadata, $payload['component'], $channels, $payload['region']);
 
             if ($more instanceof JsonResponse) {
                 return $more;
@@ -136,12 +136,12 @@ class RenderController
      * Several regions of one component and state in one answer, keyed by
      * region, each with its own version token. No action runs.
      *
-     * @param  array{component: string, regions: list<string>, state: array<string, mixed>, platform: string}  $payload
+     * @param  array{component: string, regions: list<string>, state: array<string, mixed>}  $payload
      * @param  list<string>  $channels
      */
     protected function batch(Request $request, ServerComponent $component, ComponentMetadata $metadata, array $payload, array $channels): JsonResponse
     {
-        $parts = $this->renderParts($component, $metadata, $payload['component'], $payload['regions'], $channels, $payload['platform']);
+        $parts = $this->renderParts($component, $metadata, $payload['component'], $payload['regions'], $channels);
 
         if ($parts instanceof JsonResponse) {
             return $parts;
@@ -167,7 +167,7 @@ class RenderController
      * action. `region` is null for a batch, and `regions` always lists
      * what is rendered.
      *
-     * @return array{component: string, region: ?string, regions: list<string>, state: array<string, mixed>, platform: string, action: array{call: string, args: list<mixed>}|null}
+     * @return array{component: string, region: ?string, regions: list<string>, state: array<string, mixed>, action: array{call: string, args: list<mixed>}|null}
      */
     protected function payload(Request $request): array
     {
@@ -191,11 +191,10 @@ class RenderController
         }
 
         $state = $this->state($body['state'] ?? null);
-        $platform = $this->platform($body['platform'] ?? null);
 
         $action = array_key_exists('action', $body) ? $this->action($body['action']) : null;
 
-        return compact('component', 'region', 'regions', 'state', 'platform', 'action');
+        return compact('component', 'region', 'regions', 'state', 'action');
     }
 
     /** @return list<string> */
