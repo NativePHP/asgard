@@ -145,12 +145,19 @@ it('refuses a malformed call body', function (array $overrides, ?string $drop = 
     'protocol 2' => [['protocol' => 2]],
 ]);
 
-it('refuses a call without a nonce', function () {
-    $this->asgard(callBody(), 'QUERY', [], 'call', ['nonce' => false])
+it('refuses a call without a nonce, early and unsigned', function () {
+    $response = $this->asgard(callBody(), 'QUERY', [], 'call', ['nonce' => false])
         ->assertForbidden()
-        ->assertExactJson(['error' => 'nonce_required']);
+        ->assertJsonPath('error', 'nonce_required');
 
-    expect(ServerMethodScreen::$calls)->toBe([]);
+    expect($response->headers->has('Signature'))->toBeFalse()
+        ->and(ServerMethodScreen::$calls)->toBe([]);
+});
+
+it('refuses a call without a nonce before it reads the body', function () {
+    $this->asgard('not json at all', 'QUERY', [], 'call', ['nonce' => false])
+        ->assertForbidden()
+        ->assertJsonPath('error', 'nonce_required');
 });
 
 it('runs a call once per nonce and refuses the replay', function () {

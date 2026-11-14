@@ -291,12 +291,19 @@ it('refuses a malformed frame', function (string $body) {
     'state that does not fit' => [uploadFrame(['state' => ['count' => 'x']])],
 ]);
 
-it('refuses an upload without a nonce', function () {
-    $this->asgard(uploadFrame(), 'QUERY', [], 'upload', ['nonce' => false])
+it('refuses an upload without a nonce, early and unsigned', function () {
+    $response = $this->asgard(uploadFrame(), 'QUERY', [], 'upload', ['nonce' => false])
         ->assertForbidden()
-        ->assertExactJson(['error' => 'nonce_required']);
+        ->assertJsonPath('error', 'nonce_required');
 
-    expect(UploadScreen::$calls)->toBe([]);
+    expect($response->headers->has('Signature'))->toBeFalse()
+        ->and(UploadScreen::$calls)->toBe([]);
+});
+
+it('refuses an upload without a nonce before a bad frame gets a 422', function () {
+    $this->asgard('xx', 'QUERY', [], 'upload', ['nonce' => false])
+        ->assertForbidden()
+        ->assertJsonPath('error', 'nonce_required');
 });
 
 it('runs an upload once per nonce and refuses the replay', function () {

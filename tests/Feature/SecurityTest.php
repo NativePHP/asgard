@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Route;
+use Native\Asgard\Http\Middleware\LimitUploadSize;
 use Native\Asgard\Security\Base64Url;
 use Native\Asgard\Security\ContentDigest;
 use Native\Asgard\Security\Ecdh;
@@ -265,4 +267,59 @@ it('refuses a replayed stream request once its signature expires', function () {
 
     $this->travel(301)->seconds();
     $this->sendSealed($sealed, 'POST', 'stream')->assertForbidden();
+});
+
+// Methods (Asgard protocol §7.3, §8)
+
+dataset('endpoints', ['render', 'call', 'upload', 'stream', 'routes']);
+
+it('answers a method an endpoint does not take with the plain 405', function (string $endpoint) {
+    foreach (['GET', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'BREW'] as $method) {
+        $response = $this->call($method, "/_asgard/{$endpoint}", [], [], [], ['HTTP_ACCEPT' => 'application/json']);
+
+        expect($response->getStatusCode())->toBe(405, "{$method} {$endpoint}")
+            ->and($response->json('error'))->toBe('method_not_allowed')
+            ->and($response->headers->get('Allow'))->toBe('QUERY, POST')
+            ->and($response->headers->has('Signature'))->toBeFalse();
+    }
+
+    expect($this->call('HEAD', "/_asgard/{$endpoint}")->getStatusCode())->toBe(405);
+})->with('endpoints');
+
+it('answers a POST without X-Asgard-Method with the plain 405 on every endpoint but the handshake', function (string $endpoint) {
+    $response = $this->call('POST', "/_asgard/{$endpoint}", [], [], [], ['CONTENT_TYPE' => 'application/json'], '{}');
+
+    expect($response->getStatusCode())->toBe(405)
+        ->and($response->json('error'))->toBe('method_not_allowed');
+})->with('endpoints');
+
+it('refuses a POST without X-Asgard-Method before the upload size check', function () {
+    config(['asgard.uploads.max_size' => '1K']);
+    $tooBig = (string) (LimitUploadSize::limit(1024) + 1);
+
+    $this->call('QUERY', '/_asgard/upload', [], [], [], ['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => $tooBig], 'x')
+        ->assertStatus(413);
+
+    $this->call('POST', '/_asgard/upload', [], [], [], ['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => $tooBig], 'x')
+        ->assertStatus(405)
+        ->assertJsonPath('error', 'method_not_allowed');
+});
+
+it('takes only a plain POST at the handshake', function () {
+    foreach (['GET', 'QUERY', 'PUT', 'DELETE', 'OPTIONS', 'BREW'] as $method) {
+        $response = $this->call($method, '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], handshakeBody());
+
+        expect($response->getStatusCode())->toBe(405, $method)
+            ->and($response->json('error'))->toBe('method_not_allowed')
+            ->and($response->headers->get('Allow'))->toBe('POST');
+    }
+});
+
+it('leaves a 405 elsewhere in the app to the framework', function () {
+    Route::post('/elsewhere', fn () => 'ok');
+
+    $response = $this->call('GET', '/elsewhere', [], [], [], ['HTTP_ACCEPT' => 'application/json']);
+
+    expect($response->getStatusCode())->toBe(405)
+        ->and($response->json('error'))->toBeNull();
 });

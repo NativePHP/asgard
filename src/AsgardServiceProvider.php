@@ -2,6 +2,8 @@
 
 namespace Native\Asgard;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Http\Request;
 use Illuminate\Support\ServiceProvider;
 use Native\Asgard\Blade\Elements;
 use Native\Asgard\Blade\NativeTagPrecompiler;
@@ -10,10 +12,12 @@ use Native\Asgard\Blade\RegionEngine;
 use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\Console\KeyCommand;
 use Native\Asgard\Console\PushCommand;
+use Native\Asgard\Http\MethodNotAllowed;
 use Native\Asgard\Support\GuestGuard;
 use Native\Asgard\Support\PushVersions;
 use Native\Asgard\Support\SessionStore;
 use Native\Asgard\Support\StreamClock;
+use Symfony\Component\HttpKernel\Exception\MethodNotAllowedHttpException;
 
 class AsgardServiceProvider extends ServiceProvider
 {
@@ -90,5 +94,17 @@ class AsgardServiceProvider extends ServiceProvider
         if (! $this->app->routesAreCached()) {
             $this->loadRoutesFrom(__DIR__.'/../routes/asgard.php');
         }
+
+        // A verb the routes do not list at all still gets the protocol's 405
+        // body on an Asgard endpoint, not the framework's (Asgard protocol §7.3).
+        $this->callAfterResolving(ExceptionHandler::class, function ($handler) {
+            if (method_exists($handler, 'renderable')) {
+                $handler->renderable(fn (MethodNotAllowedHttpException $e, Request $request) => match (MethodNotAllowed::endpoint($request)) {
+                    null => null,
+                    'session' => MethodNotAllowed::response(MethodNotAllowed::SESSION_ALLOW),
+                    default => MethodNotAllowed::response(MethodNotAllowed::ALLOW),
+                });
+            }
+        });
     }
 }

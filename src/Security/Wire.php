@@ -5,7 +5,7 @@ namespace Native\Asgard\Security;
 use Closure;
 
 /**
- * Asgard's use of RFC 9421, RFC 9530, RFC 8188 and gzip (protocol §7 and §8.1).
+ * Asgard's use of RFC 9421, RFC 9530, RFC 8188 and gzip (Asgard protocol §7 and §8.1).
  *
  * Seals and opens requests, responses and pushed stream events. Pure: the
  * caller supplies the keys, the clock and, in tests, the salt. Header names
@@ -111,13 +111,36 @@ final class Wire
     }
 
     /**
-     * Check a request in the order §7.6 gives (digest, signature, decrypt)
-     * and return its plaintext. The caller has already found the session.
+     * Check a request in the order Asgard protocol §7.6 gives (digest,
+     * signature, decrypt) and return its plaintext. The caller has already
+     * found the session.
      *
      * @param  array<string, string>  $headers
      * @return array{body: string, signature: string, created: int, expires: int, nonce: ?string}
      */
     public static function openRequest(
+        SessionKeys $keys,
+        string $session,
+        string $method,
+        string $authority,
+        string $path,
+        array $headers,
+        string $body,
+        int $now,
+    ): array {
+        $verified = self::verifyRequest($keys, $session, $method, $authority, $path, $headers, $body, $now);
+
+        return ['body' => self::decryptRequest($keys, $session, $headers, $body)] + $verified;
+    }
+
+    /**
+     * The checks before decryption: the digest, then the signature and its
+     * freshness. A server checks the nonce between this and decryptRequest().
+     *
+     * @param  array<string, string>  $headers
+     * @return array{signature: string, created: int, expires: int, nonce: ?string}
+     */
+    public static function verifyRequest(
         SessionKeys $keys,
         string $session,
         string $method,
@@ -169,13 +192,24 @@ final class Wire
         }
 
         return [
-            // Requests are never compressed (§7.4).
-            'body' => self::decode($headers['content-encoding'] ?? null, 'identity', $body, $keys->encClient, $session),
             'signature' => $signature,
             'created' => $created,
             'expires' => $expires,
             'nonce' => $nonce,
         ];
+    }
+
+    /**
+     * Decrypt a request body that verifyRequest() accepted.
+     *
+     * @param  array<string, string>  $headers
+     */
+    public static function decryptRequest(SessionKeys $keys, string $session, array $headers, string $body): string
+    {
+        $headers = array_change_key_case($headers);
+
+        // Requests are never compressed (§7.4).
+        return self::decode($headers['content-encoding'] ?? null, 'identity', $body, $keys->encClient, $session);
     }
 
     // Responses

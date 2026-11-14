@@ -23,7 +23,7 @@ use RuntimeException;
 
 /**
  * Takes a file from the device and hands it to an `#[Upload]` method
- * (protocol §10.6).
+ * (Asgard protocol §10.6).
  *
  * The decrypted body is a frame, not JSON:
  *
@@ -45,7 +45,9 @@ use RuntimeException;
  * must store it.
  *
  * Errors: 404 unknown_component or unknown_method, 413 too_large, 415
- * unsupported_type, 422 invalid_request, 403 nonce_required.
+ * unsupported_type, 422 invalid_request. An upload changes state, like a
+ * call, so SealAsgardMessages has already refused one without a nonce, with
+ * a plain 403 nonce_required, before it decrypted anything.
  */
 class UploadController
 {
@@ -77,11 +79,6 @@ class UploadController
             [$payload, $offset] = $this->frame($request);
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
-        }
-
-        // An upload changes state, like a call (§7.3).
-        if ($this->secure($request)->nonce === null) {
-            return response()->json(['error' => 'nonce_required'], 403);
         }
 
         $class = $this->registry->resolve($payload['component']);

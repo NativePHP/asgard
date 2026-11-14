@@ -31,7 +31,8 @@ use Native\Asgard\Support\PushVersions;
  * its own value has not moved since it sent the call.
  *
  * A call changes state, so its signature must carry a nonce, like an
- * action. Nothing is rendered unless the method calls refresh(). Regions of
+ * action. SealAsgardMessages refuses one without a nonce, or with a nonce it
+ * has seen before, before it decrypts the body. Nothing is rendered unless the method calls refresh(). Regions of
  * this component it names are rendered after the delta is worked out and
  * travel in `fragments`, keyed by region. Other components it names travel
  * as hints in `refresh`:
@@ -61,12 +62,6 @@ class CallController
             $payload = $this->payload($request);
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
-        }
-
-        // A call is not a safe request (§7.3). The middleware has already
-        // refused a nonce it has seen before.
-        if ($this->secure($request)->nonce === null) {
-            return response()->json(['error' => 'nonce_required'], 403);
         }
 
         // Plain array lookups only. The wire strings never name a class or method.
