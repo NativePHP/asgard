@@ -465,6 +465,88 @@ checked as `Asgard::push()` checks them, and an unknown one throws.
 A name that is a region of this component always means that region. An
 answer renders at most 16 inline regions and carries at most 16 hints.
 
+### Region cache
+
+A client can keep a copy of every region it is sent, so a screen that opens
+again paints at once instead of showing a placeholder. It then asks the
+server as usual, and says which copies it holds. The server decides whether
+they are still good.
+
+Every fragment the server sends carries `made_at`, the server's time in Unix
+milliseconds when it was rendered, and `max_age`, the longest in seconds the
+server lets a client treat it as fresh. `max_age` is left out when the server
+sets no limit. The client keeps a copy for the shorter of its own TTL and
+`max_age`.
+
+```php
+// config/asgard.php
+'cache' => ['max_age' => 300],  // null (the default) means no server limit
+
+#[Region('stats', maxAge: 60)]      // this region's own limit
+#[Region('balance', maxAge: 0)]     // never cached
+#[Screen('/promos/{id}', maxAge: 120)]
+```
+
+A copy is fresh when its age is under the shorter of the client's TTL and the
+region's max age. A `made_at` up to a minute in the future still counts, for
+clock skew. For a fresh region the server does not call the region method at
+all. It answers `{"cached": true}` and the client keeps what it shows.
+
+**A fresh copy wins over every other reason to redraw**: an action on the
+region, `refresh()`, a fetch after a push. So once caching is on, an action
+or `#[Server]` method that changes what a region shows must say so:
+
+```php
+#[Action]
+public function like(): void
+{
+    $this->post->increment('likes');
+
+    $this->forceCacheInvalidation();
+}
+```
+
+`forceCacheInvalidation()` covers the current answer only. Every region in it
+is rendered and sent, and the answer carries the signed header
+`Asgard-Cache: invalidate`, which tells the client to replace its copies. It
+can be called anywhere in the request: an action, a `#[Server]` or
+`#[Upload]` method, a region method before it returns, or the hook below.
+
+`checkClientCache()` runs for each region the client holds a fresh copy of,
+before the server skips it. Compare the copy with your data there:
+
+```php
+use Native\Asgard\ClientCache;
+
+protected function checkClientCache(string $region, ClientCache $cache): void
+{
+    if ($this->post->updated_at > $cache->madeAt) {
+        $this->forceCacheInvalidation();
+    }
+}
+```
+
+`ClientCache` has `region`, `madeAt` (a `CarbonImmutable`), `ttl` (seconds),
+`age()` (seconds, a float) and `isFresh()`. `$this->clientCache('stats')`
+gives the copy for a region anywhere in the request, or null when the client
+holds none.
+
+A render the client sends because a push told it to says so, and
+`$this->fetchedForPush()` is true. The server does nothing with that by
+itself. To let a push always win over a cached copy:
+
+```php
+protected function checkClientCache(string $region, ClientCache $cache): void
+{
+    if ($this->fetchedForPush()) {
+        $this->forceCacheInvalidation();
+    }
+}
+```
+
+Shared regions get `made_at` too. A shared fragment is rendered once and kept
+in the push store, so every device sent it gets the time it was really made.
+
 ## Server screens
 
 A region lives inside a screen the app wrote. A server screen is a whole
@@ -870,6 +952,25 @@ distinct names, and cannot carry an `action`:
 {"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon","platform":"ios"}}
 ```
 
+A render or batch request may carry `cache`, the copies of regions of this
+component the client holds, keyed by region name (`screen` for a server
+screen). `made_at` is the server's own value from when the copy was made.
+`ttl` is the client's effective TTL in seconds:
+
+```json
+{"protocol":1,"component":"app.native.screens.home","region":"stats","state":{…},
+ "cache":{"stats":{"made_at":1763150000123,"ttl":300}}}
+```
+
+`cache` must be an object of at most 64 entries. Each key is a region name and
+each entry has exactly `made_at` (a positive integer) and `ttl` (an integer
+from 0 to 31536000). Anything else is a 422. Names that are not regions of
+the component are ignored.
+
+A render or batch request sent because a push told the client to fetch adds
+`"reason":"push"`. Any other value is a 422. The server does not act on it by
+itself; `fetchedForPush()` exposes it.
+
 `component` is the address the client component named with
 `#[EntangleWith]`, or its FQCN in dot notation with each segment
 snake-cased. There is no `platform` member: a client sends what it wants the
@@ -880,24 +981,47 @@ ignored, as any unknown member is. A malformed request gets 422
 **Response 200:**
 
 ```json
-{"protocol":1,"region":"greeting","fragment":{"type":"column","class":"p-4 gap-2","children":[{"type":"text","props":{"text":"Hello"}}]}}
+{"protocol":1,"region":"greeting","version":"…","made_at":1763150000123,"max_age":60,
+ "fragment":{"type":"column","class":"p-4 gap-2","children":[{"type":"text","props":{"text":"Hello"}}]}}
 ```
+
+Every fragment the server sends, here and in every `fragments` map, carries
+`made_at` (Unix milliseconds when it was rendered) and `max_age` (seconds),
+next to `version`. `max_age` is left out when the server sets no limit.
+
+When the client's copy of the region is fresh, the region is not rendered and
+the answer is only:
+
+```json
+{"protocol":1,"cached":true}
+```
+
+An action answer for a fresh region is the same, plus any `fragments` and
+`refresh` it carries. In a `fragments` map a fresh region is
+`"stats":{"cached":true}`. A cached part has no `version`, since the client's
+copy keeps the one it came with.
+
+When the request forced invalidation, every region is rendered and the
+response carries `Asgard-Cache: invalidate`. The response signature covers it,
+right after `asgard-protocol`, whenever it is present. A response that
+carries the header without covering it does not verify. Calls and uploads
+can carry the header too, even with no fragments.
 
 An action whose method called `refresh()` adds `fragments`, the other regions
 it rendered, and `refresh`, the hints. Each is left out when empty:
 
 ```json
-{"protocol":1,"region":"stats","version":"…","fragment":{…},
- "fragments":{"greeting":{"version":"q3V0bG9yZW1pcHN1","fragment":{…}}},
+{"protocol":1,"region":"stats","version":"…","made_at":1763150000123,"fragment":{…},
+ "fragments":{"greeting":{"version":"q3V0bG9yZW1pcHN1","made_at":1763150000123,"fragment":{…}}},
  "refresh":[{"component":"app.native.screens.inbox","region":"unread"}]}
 ```
 
 A `regions` request is answered with one part per region, keyed by region.
-Each part has the region's own `version`, its `fragment`, and `chrome` for a
-server screen:
+Each part has the region's own `version`, `made_at` and `max_age`, its
+`fragment`, and `chrome` for a server screen, or is `{"cached":true}`:
 
 ```json
-{"protocol":1,"fragments":{"greeting":{"version":"…","fragment":{…}},"stats":{"version":"…","fragment":{…}}}}
+{"protocol":1,"fragments":{"greeting":{"version":"…","made_at":1763150000123,"fragment":{…}},"stats":{"cached":true}}}
 ```
 
 An answer is gzipped only when every region in it allows it. A batch or an
@@ -934,7 +1058,8 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 action, its signature must carry a nonce.
 
 **Request body:** the component, the `#[Server]` method, its args by position,
-and the device's state after its own body ran. Nothing else is allowed. A
+and the device's state after its own body ran, plus an optional `cache` as on
+render. Nothing else is allowed. A
 `platform` member from an older client is refused like any unknown member.
 
 ```json
@@ -951,7 +1076,8 @@ values with text the device chose.
 ```
 
 A method that called `refresh()` adds `fragments` and `refresh`, shaped as
-on an action's answer. The regions are rendered after the delta is worked
+on an action's answer. A region the request's `cache` holds fresh is
+`{"cached":true}` there. The regions are rendered after the delta is worked
 out. The answer is still never gzipped.
 
 **Errors:** as render, except:
@@ -982,7 +1108,8 @@ the rest             the file, exactly `size` bytes
 {"protocol":1,"component":"app.native.screens.home","method":"savePhoto","args":[],"state":{"name":"Simon","platform":"ios"},"filename":"IMG_0001.jpg","mime":"image/jpeg","size":2483113}
 ```
 
-`filename` and `mime` are what the device says, and only informational.
+The header may carry `cache` as a call can. `filename` and `mime` are what
+the device says, and only informational.
 A frame was picked over JSON with the file in base64, which would make every
 upload a third bigger and need it decoded in memory as well.
 
@@ -1053,8 +1180,9 @@ data: {"body":"…","enc":"identity","sig":"…"}
 
 Each `body` decrypts with `enc_s`, then gunzips when `enc` is `gzip`, to
 `{"protocol":1,"subscription":"3f9a0c1d2e4b5a6c","region":"stats","version":"…"}`
-for a signal, plus `fragment` (and `chrome` for a server screen) for a shared
-region's fragment event. `sig` is HMAC-SHA256 with
+for a signal, plus `made_at`, `max_age` and `fragment` (and `chrome` for a
+server screen) for a shared region's fragment event. `made_at` is when the
+shared render was made, the same for every device it is sent to. `sig` is HMAC-SHA256 with
 `sig_s` over `asgard/1 event`, the stream request's signature in base64, the
 event id, the event name, `enc` and `body`, one per line. An event only
 verifies on the stream it was sent on.

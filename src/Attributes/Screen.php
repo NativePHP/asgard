@@ -21,7 +21,7 @@ use Attribute;
  * `compress: false` turns off gzip for the screen's answers, for the same
  * reason #[Region] has it (Asgard protocol §7.4). `shared: true` is #[Region]'s
  * too: the screen renders the same for everyone with the same state, so a
- * push sends it inline (Asgard protocol §8.1).
+ * push sends it inline (Asgard protocol §8.1). `maxAge` is #[Region]'s too.
  */
 #[Attribute(Attribute::TARGET_CLASS)]
 final class Screen
@@ -31,5 +31,6 @@ final class Screen
         public ?string $name = null,
         public bool $compress = true,
         public bool $shared = false,
+        public ?int $maxAge = null,
     ) {}
 }

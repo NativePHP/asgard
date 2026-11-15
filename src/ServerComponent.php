@@ -31,6 +31,13 @@ abstract class ServerComponent
     /** @var array<string, array{component: string, region?: string}> */
     private array $asgardHints = [];
 
+    /** @var array<string, ClientCache> */
+    private array $asgardClientCache = [];
+
+    private bool $asgardInvalidate = false;
+
+    private bool $asgardPush = false;
+
     /** @internal */
     final public function setAsgardContext(string $region): void
     {
@@ -171,5 +178,101 @@ abstract class ServerComponent
     final protected function region(): string
     {
         return $this->asgardRegion;
+    }
+
+    /**
+     * Render every region in this answer, even ones the client holds a
+     * fresh copy of, and tell the client to replace its copies. Covers
+     * the current answer only. Call it from an #[Action], #[Server] or
+     * #[Upload] method that changes what a region shows, from
+     * checkClientCache(), or from a region method before it returns.
+     */
+    final protected function forceCacheInvalidation(): void
+    {
+        $this->asgardInvalidate = true;
+    }
+
+    /**
+     * Whether the client sent this render because a push told it to. The
+     * server does nothing with it by itself. To make a push always win over
+     * a fresh client copy:
+     *
+     *     protected function checkClientCache(string $region, ClientCache $cache): void
+     *     {
+     *         if ($this->fetchedForPush()) {
+     *             $this->forceCacheInvalidation();
+     *         }
+     *     }
+     *
+     * A client could claim this falsely. The worst that gets it is a
+     * fresh render. Calls and uploads never carry it.
+     */
+    final protected function fetchedForPush(): bool
+    {
+        return $this->asgardPush;
+    }
+
+    /** @internal */
+    final public function setAsgardPush(bool $push): void
+    {
+        $this->asgardPush = $push;
+    }
+
+    /** The copy of this region the client said it holds, or null for none. */
+    final protected function clientCache(string $region): ?ClientCache
+    {
+        return $this->asgardClientCache[$region] ?? null;
+    }
+
+    /**
+     * Called for each region about to be rendered whose client copy is
+     * fresh, before the server skips rendering it. Compare
+     * $cache->madeAt with when the data last changed, and call
+     * forceCacheInvalidation() when the copy is out of date:
+     *
+     *     protected function checkClientCache(string $region, ClientCache $cache): void
+     *     {
+     *         if (Post::find($this->id)?->updated_at > $cache->madeAt) {
+     *             $this->forceCacheInvalidation();
+     *         }
+     *     }
+     */
+    protected function checkClientCache(string $region, ClientCache $cache): void {}
+
+    /**
+     * @internal
+     *
+     * @param  array<string, ClientCache>  $caches
+     */
+    final public function setAsgardClientCache(array $caches): void
+    {
+        $this->asgardClientCache = $caches;
+    }
+
+    /**
+     * Whether this region can go back as `{"cached": true}`: the client's
+     * copy is fresh, checkClientCache() let it stand and nothing forced
+     * invalidation.
+     *
+     * @internal
+     */
+    final public function asgardServesFromCache(string $region): bool
+    {
+        $cache = $this->asgardClientCache[$region] ?? null;
+
+        if ($this->asgardInvalidate || $cache === null || ! $cache->isFresh()) {
+            return false;
+        }
+
+        $this->setAsgardContext($region);
+        $this->checkClientCache($region, $cache);
+
+        return ! $this->asgardInvalidate;
+    }
+
+    /** @internal */
+    final public function asgardInvalidatesCache(): bool
+    {
+        return $this->asgardInvalidate;
     }
 }

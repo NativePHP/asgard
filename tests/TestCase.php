@@ -14,6 +14,7 @@ use Native\Asgard\Tests\Fixtures\BadFragments;
 use Native\Asgard\Tests\Fixtures\BareScreen;
 use Native\Asgard\Tests\Fixtures\BladePromoScreen;
 use Native\Asgard\Tests\Fixtures\BladeScreen;
+use Native\Asgard\Tests\Fixtures\CacheScreen;
 use Native\Asgard\Tests\Fixtures\ChannelScreen;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\ComputedScreen;
@@ -66,6 +67,7 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.server_methods' => ServerMethodScreen::class,
             'app.native.screens.uploads' => UploadScreen::class,
             'app.native.screens.computed' => ComputedScreen::class,
+            'app.native.screens.cache' => CacheScreen::class,
         ]);
         $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
         $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
@@ -84,6 +86,7 @@ abstract class TestCase extends BaseTestCase
         UploadScreen::$calls = [];
         ComputedScreen::$mode = null;
         ComputedScreen::$totals = 0;
+        CacheScreen::reset();
 
         parent::tearDown();
     }

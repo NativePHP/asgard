@@ -29,6 +29,7 @@ it('runs a marked action and renders the region it changed', function () {
     $response->assertExactJson([
         'protocol' => 1,
         'version' => $response->json('version'),
+        'made_at' => $response->json('made_at'),
         'region' => 'greeting',
         'fragment' => [
             'type' => 'column',

@@ -67,6 +67,8 @@ class RenderController
 
         $component = $this->container->make($class);
         $component->setAsgardContext($payload['region'] ?? '');
+        $this->giveClientCache($component, $metadata, $payload['cache']);
+        $component->setAsgardPush($payload['push']);
 
         try {
             Hydrator::hydrate($component, $payload['state']);
@@ -90,53 +92,56 @@ class RenderController
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
 
-        $part = $this->renderPart($component, $metadata, $payload['region']);
+        // Only an action can call refresh(). What it asked for rides along,
+        // rendered with the acting region so one cache decision covers all.
+        $own = $payload['region'];
+        $regions = [$own];
+        $hints = [];
 
-        if ($part instanceof JsonResponse) {
-            return $part;
+        if ($action) {
+            $asked = $component->asgardRefreshes();
+            $regions = array_values(array_unique([$own, ...$asked['regions']]));
+            $hints = $asked['hints'];
         }
 
-        $answer = [
-            'protocol' => self::PROTOCOL,
-            'region' => $payload['region'],
-            ...($version === null ? [] : ['version' => $version]),
-            ...$part,
-        ];
+        $parts = $this->renderParts($component, $metadata, $payload['component'], $regions, $channels, [$own => $version]);
 
-        $compress = $metadata->compresses($payload['region']);
+        if ($parts instanceof JsonResponse) {
+            return $parts;
+        }
 
-        // Only an action can call refresh(). What it asked for rides along.
-        if ($action) {
-            $more = $this->refreshed($component, $metadata, $payload['component'], $channels, $payload['region']);
+        $part = $parts[$own];
+        unset($parts[$own]);
 
-            if ($more instanceof JsonResponse) {
-                return $more;
-            }
+        // A fresh client copy goes back as {"protocol":1,"cached":true}.
+        $answer = isset($part['cached'])
+            ? ['protocol' => self::PROTOCOL, 'cached' => true]
+            : ['protocol' => self::PROTOCOL, 'region' => $own, ...$part];
 
-            if ($more['fragments'] !== []) {
-                $answer['fragments'] = $more['fragments'];
-            }
+        if ($parts !== []) {
+            $answer['fragments'] = $parts;
+        }
 
-            if ($more['refresh'] !== []) {
-                $answer['refresh'] = $more['refresh'];
-            }
-
-            foreach (array_keys($more['fragments']) as $region) {
-                $compress = $compress && $metadata->compresses($region);
-            }
+        if ($hints !== []) {
+            $answer['refresh'] = $hints;
         }
 
         // An answer is compressed only when every region in it allows it.
+        $compress = true;
+        foreach ($regions as $region) {
+            $compress = $compress && $metadata->compresses($region);
+        }
+
         $request->attributes->set(SecureRequest::COMPRESS, $compress);
 
-        return response()->json($answer, 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return $this->respond($component, $answer);
     }
 
     /**
      * Several regions of one component and state in one answer, keyed by
      * region, each with its own version token. No action runs.
      *
-     * @param  array{component: string, regions: list<string>, state: array<string, mixed>}  $payload
+     * @param  array{component: string, regions: list<string>, state: array<string, mixed>, cache: array<string, array{made_at: int, ttl: int}>}  $payload
      * @param  list<string>  $channels
      */
     protected function batch(Request $request, ServerComponent $component, ComponentMetadata $metadata, array $payload, array $channels): JsonResponse
@@ -155,10 +160,10 @@ class RenderController
 
         $request->attributes->set(SecureRequest::COMPRESS, $compress);
 
-        return response()->json([
+        return $this->respond($component, [
             'protocol' => self::PROTOCOL,
             'fragments' => $parts,
-        ], 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        ]);
     }
 
     /**
@@ -167,7 +172,10 @@ class RenderController
      * action. `region` is null for a batch, and `regions` always lists
      * what is rendered.
      *
-     * @return array{component: string, region: ?string, regions: list<string>, state: array<string, mixed>, action: array{call: string, args: list<mixed>}|null}
+     * `cache` lists the copies of regions the client holds. `push` is
+     * whether the body said `"reason": "push"`.
+     *
+     * @return array{component: string, region: ?string, regions: list<string>, state: array<string, mixed>, action: array{call: string, args: list<mixed>}|null, cache: array<string, array{made_at: int, ttl: int}>, push: bool}
      */
     protected function payload(Request $request): array
     {
@@ -194,7 +202,17 @@ class RenderController
 
         $action = array_key_exists('action', $body) ? $this->action($body['action']) : null;
 
-        return compact('component', 'region', 'regions', 'state', 'action');
+        $cache = $this->cache($body['cache'] ?? null);
+
+        // Sent when a push made the client fetch. The client could claim it
+        // falsely, but the worst that gets it is a fresh render.
+        if (array_key_exists('reason', $body) && $body['reason'] !== 'push') {
+            throw new InvalidRequest('reason must be "push" when present.');
+        }
+
+        $push = array_key_exists('reason', $body);
+
+        return compact('component', 'region', 'regions', 'state', 'action', 'cache', 'push');
     }
 
     /** @return list<string> */

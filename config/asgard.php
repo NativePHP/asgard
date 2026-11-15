@@ -135,6 +135,21 @@ return [
     ],
 
     /*
+    | Region cache. A client that keeps copies of regions sends what it holds
+    | in a `cache` member, and the server skips rendering a region whose copy
+    | is still fresh. See "Region cache" in the README.
+    |
+    | max_age: the longest, in seconds, a client may treat any region or
+    |          screen as fresh, or null for no server limit. The client's
+    |          own TTL still applies, and the shorter one wins. A region can
+    |          set its own with #[Region('stats', maxAge: 60)], a screen
+    |          with #[Screen('/x', maxAge: 60)]. 0 means never cache.
+    */
+    'cache' => [
+        'max_age' => env('ASGARD_CACHE_MAX_AGE'),
+    ],
+
+    /*
     | Extra keys added to the delta of every answer that carries one: a
     | #[Server] call or an upload. They go every time, changed or not. The
     | client keeps a key only where its component has a public prop of that

@@ -59,7 +59,7 @@ class UploadController
     public const HEADER_MAX = 1024 * 1024;
 
     /** Any other member is refused (§5.3). */
-    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'filename', 'mime', 'size'];
+    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'cache', 'filename', 'mime', 'size'];
 
     public function __construct(
         protected ComponentRegistry $registry,
@@ -114,6 +114,7 @@ class UploadController
 
             $component = $this->container->make($class);
             $component->setAsgardContext('');
+            $this->giveClientCache($component, $metadata, $payload['cache']);
 
             try {
                 Hydrator::hydrate($component, $payload['state']);
@@ -138,7 +139,7 @@ class UploadController
     /**
      * The header, checked, and where the file's bytes start in the body.
      *
-     * @return array{0: array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, filename: string, size: int}, 1: int}
+     * @return array{0: array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, cache: array<string, array{made_at: int, ttl: int}>, filename: string, size: int}, 1: int}
      */
     protected function frame(Request $request): array
     {
@@ -205,6 +206,7 @@ class UploadController
             'method' => $head['method'],
             'args' => $head['args'],
             'state' => $this->state($head['state'] ?? null),
+            'cache' => $this->cache($head['cache'] ?? null),
             'filename' => $this->filename($head['filename'] ?? null),
             'size' => $size,
         ], $offset];

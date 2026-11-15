@@ -22,7 +22,7 @@ use UnexpectedValueException;
  * ReadsAsgardRequests helpers.
  *
  *     ← {"protocol":1,"delta":{"roll":4},
- *        "fragments":{"stats":{"version":"…","fragment":{…}}},
+ *        "fragments":{"stats":{"version":"…","made_at":1763150000123,"fragment":{…}}},
  *        "refresh":[{"component":"app.native.screens.inbox","region":"unread"}]}
  */
 trait AnswersWithDelta
@@ -72,7 +72,7 @@ trait AnswersWithDelta
         // Never compressed, fragments or not: the delta can mix the
         // server's values with text the device chose (§7.4).
 
-        return response()->json($answer, 200, [], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        return $this->respond($component, $answer);
     }
 
     /**

@@ -14,6 +14,7 @@ it('renders a region over QUERY', function () {
     $response->assertExactJson([
         'protocol' => 1,
         'version' => $response->json('version'),
+        'made_at' => $response->json('made_at'),
         'region' => 'greeting',
         'fragment' => [
             'type' => 'column',
@@ -179,6 +180,7 @@ it('strips internal prop keys', function () {
     $response->assertExactJson([
         'protocol' => 1,
         'version' => $response->json('version'),
+        'made_at' => $response->json('made_at'),
         'region' => 'props',
         'fragment' => ['type' => 'button', 'props' => ['label' => 'Go'], 'on_press' => ['call' => 'go', 'args' => [1]]],
     ]);

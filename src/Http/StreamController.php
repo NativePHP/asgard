@@ -6,6 +6,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Native\Asgard\Blade\RegionViews;
+use Native\Asgard\ClientCache;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
@@ -286,7 +287,7 @@ class StreamController
      *
      * @param  array{component: string, state: array<string, mixed>, class: class-string<ServerComponent>, methods: array<string, string>}  $subscription
      * @param  list<string>  $elements
-     * @return array{fragment: array, chrome?: object}|null
+     * @return array{made_at: int, max_age?: int, fragment: array, chrome?: object}|null
      */
     protected function shared(array $subscription, string $region, string $version, array $elements): ?array
     {
@@ -294,11 +295,16 @@ class StreamController
             return null;
         }
 
+        // made_at is part of what the push store keeps, so every device sent
+        // this render gets the time it was really made.
         $answer = $this->versions->shared(
             $subscription['component'], $region, $subscription['state'], $version,
-            fn () => $this->asGuest(fn () => $this->render($subscription['class'], $subscription['methods'][$region], $region, $subscription['state'], $elements)),
+            fn () => ['made_at' => ClientCache::nowMs(), ...$this->asGuest(fn () => $this->render($subscription['class'], $subscription['methods'][$region], $region, $subscription['state'], $elements))],
             $elements,
         );
+
+        $stamp = ComponentMetadata::for($subscription['class'])->stamp($region, (int) ($answer['made_at'] ?? ClientCache::nowMs()));
+        $answer = [...$stamp, ...array_diff_key($answer, $stamp)];
 
         // Chrome is a JSON object even when empty, however the store kept it.
         if (array_key_exists('chrome', $answer)) {

@@ -68,7 +68,7 @@ it('sends a shared region inline as a fragment', function () {
 
     expect($tick['event'])->toBe('fragment')
         ->and($tick['data'])->toBe([
-            'protocol' => 1, 'subscription' => 's1', 'region' => 'tick', 'version' => $tick['data']['version'],
+            'protocol' => 1, 'subscription' => 's1', 'region' => 'tick', 'version' => $tick['data']['version'], 'made_at' => $tick['data']['made_at'],
             'fragment' => ['type' => 'text', 'props' => ['text' => 'Count: 6']],
         ]);
 });

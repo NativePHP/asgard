@@ -5,12 +5,14 @@ namespace Native\Asgard\Http\Concerns;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
+use Native\Asgard\ClientCache;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Http\SecureRequest;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\Channels;
+use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\Hydrator;
 
 /**
@@ -23,6 +25,12 @@ trait ReadsAsgardRequests
     public const PROTOCOL = 1;
 
     public const REGION_PATTERN = '/^[A-Za-z0-9_.:-]{1,100}$/D';
+
+    /** At most this many entries in a request's `cache` member. */
+    public const MAX_CACHE_ENTRIES = 64;
+
+    /** The longest TTL a client may declare: a year. */
+    public const MAX_CACHE_TTL = 31_536_000;
 
     /**
      * Protocol header, JSON object body and protocol 1.
@@ -92,6 +100,74 @@ trait ReadsAsgardRequests
         }
 
         return $region;
+    }
+
+    /**
+     * The request's `cache` member: the copies of regions the client holds,
+     * keyed by region name, each `{"made_at": ms, "ttl": seconds}`.
+     *
+     * @return array<string, array{made_at: int, ttl: int}>
+     */
+    protected function cache(mixed $cache): array
+    {
+        $cache ??= [];
+
+        if (! is_array($cache) || ($cache !== [] && array_is_list($cache))) {
+            throw new InvalidRequest('cache must be a JSON object.');
+        }
+
+        if (count($cache) > self::MAX_CACHE_ENTRIES) {
+            throw new InvalidRequest('cache holds at most '.self::MAX_CACHE_ENTRIES.' entries.');
+        }
+
+        $checked = [];
+        foreach ($cache as $region => $entry) {
+            $region = (string) $region;
+            $field = "cache.{$region}";
+
+            if (! preg_match(self::REGION_PATTERN, $region)) {
+                throw new InvalidRequest('cache keys must be region names.');
+            }
+
+            if (! is_array($entry) || array_is_list($entry)) {
+                throw new InvalidRequest("{$field} must be an object.");
+            }
+
+            if (array_diff(array_map('strval', array_keys($entry)), ['made_at', 'ttl']) !== []) {
+                throw new InvalidRequest("{$field} has unknown fields.");
+            }
+
+            if (! is_int($entry['made_at'] ?? null) || $entry['made_at'] < 1) {
+                throw new InvalidRequest("{$field}.made_at must be a positive integer.");
+            }
+
+            if (! is_int($entry['ttl'] ?? null) || $entry['ttl'] < 0 || $entry['ttl'] > self::MAX_CACHE_TTL) {
+                throw new InvalidRequest("{$field}.ttl must be an integer from 0 to ".self::MAX_CACHE_TTL.'.');
+            }
+
+            $checked[$region] = ['made_at' => $entry['made_at'], 'ttl' => $entry['ttl']];
+        }
+
+        return $checked;
+    }
+
+    /**
+     * Hand the component the copies it can use. Names that are not its
+     * regions are dropped.
+     *
+     * @param  array<string, array{made_at: int, ttl: int}>  $cache
+     */
+    protected function giveClientCache(ServerComponent $component, ComponentMetadata $metadata, array $cache): void
+    {
+        $caches = [];
+
+        foreach ($cache as $region => $entry) {
+            if (isset($metadata->regions[$region])) {
+                $caches[$region] = new ClientCache($region, $entry['made_at'], $entry['ttl'], $metadata->maxAge($region));
+            }
+        }
+
+        $component->setAsgardClientCache($caches);
     }
 
     /** @return array<string, mixed> */

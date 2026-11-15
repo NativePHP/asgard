@@ -90,9 +90,14 @@ class SealAsgardMessages
 
         // Only a fragment from a region that allows it is compressed. Errors
         // never are: they are small and may echo what the client sent.
+        // Asgard-Cache tells the client to replace its cached regions, so
+        // the signature covers it whenever it is there.
+        $cache = $response->headers->get('Asgard-Cache');
+
         $sealed = Wire::sealResponse(
             $keys, $session, $response->getStatusCode(), (string) $response->getContent(), $verified['signature'],
             now()->getTimestamp(), null, $request->attributes->get(SecureRequest::COMPRESS) === true,
+            $cache === null || $cache === '' ? null : $cache,
         );
 
         $response->setContent($sealed['body']);

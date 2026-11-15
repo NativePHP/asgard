@@ -31,6 +31,7 @@ use ReflectionUnionType;
  *             not declare any other.
  * uncompressed: names of regions declared with compress: false.
  * shared:     names of regions declared with shared: true.
+ * maxAges:    region name => seconds, for regions that set maxAge.
  * properties: property name => allowed builtin types, for public,
  *             non-static, non-readonly, typed, unlocked properties declared
  *             on the class itself.
@@ -68,6 +69,7 @@ final class ComponentMetadata
      * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $servers
      * @param  array<string, array{spec: array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}, maxSize: int|null, mimes: list<string>}>  $uploads
      * @param  list<string>  $computed
+     * @param  array<string, int>  $maxAges
      */
     private function __construct(
         public readonly array $regions,
@@ -78,7 +80,45 @@ final class ComponentMetadata
         public readonly array $servers = [],
         public readonly array $uploads = [],
         public readonly array $computed = [],
+        public readonly array $maxAges = [],
     ) {}
+
+    /**
+     * The longest a client may treat a copy of this region as fresh, in
+     * seconds: the region's own maxAge, else `asgard.cache.max_age`. Null
+     * means the server sets no limit.
+     */
+    public function maxAge(string $region): ?int
+    {
+        if (array_key_exists($region, $this->maxAges)) {
+            return $this->maxAges[$region];
+        }
+
+        $config = config('asgard.cache.max_age');
+
+        if ($config === null || $config === '') {
+            return null;
+        }
+
+        if (! is_numeric($config) || (int) $config != $config || (int) $config < 0) {
+            throw new InvalidArgumentException('asgard.cache.max_age must be a whole number of seconds, 0 or more, or null.');
+        }
+
+        return (int) $config;
+    }
+
+    /**
+     * `made_at`, and `max_age` when the server sets one, for a fragment of
+     * this region made at $madeAt (Unix milliseconds).
+     *
+     * @return array{made_at: int, max_age?: int}
+     */
+    public function stamp(string $region, int $madeAt): array
+    {
+        $maxAge = $this->maxAge($region);
+
+        return ['made_at' => $madeAt, ...($maxAge === null ? [] : ['max_age' => $maxAge])];
+    }
 
     public function compresses(string $region): bool
     {
@@ -112,6 +152,7 @@ final class ComponentMetadata
         $regions = [];
         $uncompressed = [];
         $shared = [];
+        $maxAges = [];
         foreach ($reflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
             if ($method->isStatic() || $method->getDeclaringClass()->getName() !== $class) {
                 continue;
@@ -134,6 +175,10 @@ final class ComponentMetadata
                 if ($region->shared) {
                     $shared[] = $name;
                 }
+
+                if ($region->maxAge !== null) {
+                    $maxAges[$name] = self::maxAgeOf($region->maxAge, "#[Region('{$name}')] on [{$class}]");
+                }
             }
         }
 
@@ -151,6 +196,10 @@ final class ComponentMetadata
 
             if ($screen !== null && $screen->newInstance()->shared) {
                 $shared[] = ServerScreen::REGION;
+            }
+
+            if ($screen !== null && $screen->newInstance()->maxAge !== null) {
+                $maxAges[ServerScreen::REGION] = self::maxAgeOf($screen->newInstance()->maxAge, "#[Screen] on [{$class}]");
             }
         }
 
@@ -205,7 +254,16 @@ final class ComponentMetadata
         $servers = self::callable($reflection, Server::class);
         $uploads = self::uploadable($reflection);
 
-        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers, $uploads, $computed);
+        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers, $uploads, $computed, $maxAges);
+    }
+
+    private static function maxAgeOf(int $maxAge, string $where): int
+    {
+        if ($maxAge < 0) {
+            throw new LogicException("{$where}: maxAge must be 0 or more seconds.");
+        }
+
+        return $maxAge;
     }
 
     /** The wire-facing attributes a #[Computed] method may not also carry. */

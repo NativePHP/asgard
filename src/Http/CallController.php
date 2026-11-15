@@ -48,7 +48,7 @@ class CallController
     use RendersRegions;
 
     /** Any other member is refused (§5.3). */
-    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state'];
+    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'cache'];
 
     public function __construct(
         protected ComponentRegistry $registry,
@@ -81,6 +81,7 @@ class CallController
 
         $component = $this->container->make($class);
         $component->setAsgardContext('');
+        $this->giveClientCache($component, $metadata, $payload['cache']);
 
         try {
             Hydrator::hydrate($component, $payload['state']);
@@ -98,7 +99,7 @@ class CallController
     }
 
     /**
-     * @return array{component: string, method: string, args: list<mixed>, state: array<string, mixed>}
+     * @return array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, cache: array<string, array{made_at: int, ttl: int}>}
      */
     protected function payload(Request $request): array
     {
@@ -122,6 +123,7 @@ class CallController
             'method' => $body['method'],
             'args' => $body['args'],
             'state' => $this->state($body['state'] ?? null),
+            'cache' => $this->cache($body['cache'] ?? null),
         ];
     }
 }

@@ -21,6 +21,10 @@ use Attribute;
  * renders with no authenticated user, so it must not depend on the user or
  * hold secrets. That also makes compressing it safe. Leave it off when in
  * doubt: a region that is not shared costs a round trip, never a leak.
+ *
+ * `maxAge` is the longest, in seconds, a client may keep showing a cached
+ * copy of this region without the server rendering it again. null uses
+ * `asgard.cache.max_age`. 0 means the client never caches it.
  */
 #[Attribute(Attribute::TARGET_METHOD)]
 final class Region
@@ -29,5 +33,6 @@ final class Region
         public string $name,
         public bool $compress = true,
         public bool $shared = false,
+        public ?int $maxAge = null,
     ) {}
 }
