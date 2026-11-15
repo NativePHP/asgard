@@ -1235,7 +1235,7 @@ and the device's state after its own body ran, plus optional `read_only`,
 `regions` names the regions to draw again once the method has run. It is a
 list of distinct region names of this component, checked as render checks
 them, and may be empty. A name that is not a region of the component is a
-422 `invalid_request`, and more than `asgard.max_regions` is a 422
+404 `unknown_component`, and more than `asgard.max_regions` is a 422
 `too_many_regions`. Either way the method does not run.
 
 **Response 200:** the props the method changed, then every `#[Computed]`
@@ -1266,9 +1266,9 @@ A key in `read_only` is never in the delta. One the method changed is a 500
 | Status | Body | When |
 | --- | --- | --- |
 | 403 | `{"error":"nonce_required",…}` | The signature has no nonce. Plain and unsigned, sent before the body is decrypted. |
-| 404 | `{"error":"unknown_component"}` | The address is not registered. |
+| 404 | `{"error":"unknown_component"}` | The address is not registered, or a name in `regions` is not a region of the component. |
 | 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[ServerAction]` method on the component, or the arg count doesn't fit it. |
-| 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, a bad `read_only`, a name in `regions` that is not a region of the component, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
+| 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, a bad `read_only`, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 422 | `{"error":"too_many_regions","message":…}` | `regions` names more than `asgard.max_regions`. The method does not run. |
 | 500 | `{"error":"invalid_delta"}` | The method or a region it drew left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |
 | 500 | `{"error":"read_only_changed"}` | The method changed a key the request listed in `read_only`. Only with `app.debug` on. |

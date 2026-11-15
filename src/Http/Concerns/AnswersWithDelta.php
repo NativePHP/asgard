@@ -89,7 +89,7 @@ trait AnswersWithDelta
     }
 
     /**
-     * A 422 for the first name in a call's or upload's `regions` that is
+     * A 404 unknown_component for the first name in a call's or upload's `regions` that is
      * not a region of this component, or null when they all are.
      *
      * @param  list<string>  $regions
@@ -98,7 +98,7 @@ trait AnswersWithDelta
     {
         foreach ($regions as $region) {
             if (! isset($metadata->regions[$region])) {
-                return $this->error(422, 'invalid_request', "regions names [{$region}], which is not a region of this component.");
+                return response()->json(['error' => 'unknown_component'], 404);
             }
         }
 
