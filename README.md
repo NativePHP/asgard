@@ -868,6 +868,7 @@ Config, under `asgard.stream`:
 | `lifetime` | `300` | Seconds before the server closes a stream. The client reconnects. `ASGARD_STREAM_LIFETIME`. |
 | `poll_ms` | `500` | How often each stream reads the push store. Polls run on a fixed schedule, so the work a poll does comes out of the wait before the next. A poll that runs long skips to the next tick. `ASGARD_STREAM_POLL_MS`. |
 | `patch_log` | `256` | Patches kept per region counter for streams to send on (see "Patches"). 0 turns patches into signals. `ASGARD_STREAM_PATCH_LOG`. |
+| `patch_wait_ms` | `250` | How long a stream waits for the newest patch's log entry, which is written just after its counter moves, before it signals the region instead. `ASGARD_STREAM_PATCH_WAIT_MS`. |
 
 ### Patches
 
@@ -926,13 +927,16 @@ whenever it cannot be sure the patches tell the whole story:
 - a plain push to the region, its component or a channel it is in landed
   between them;
 - it is further behind than the log keeps (`patch_log`), or an entry expired;
+- the newest patch's entry is still not written after `patch_wait_ms`;
 - a patch to everyone and a channel patch landed in the same poll, so their
   order is unknown;
 - a patch uses an element type its client did not advertise.
 
-On connect a device that is behind gets a signal, never a replay. The device
-also fetches the region when a patch's `from` is not the version it holds,
-so a lost patch can never leave a wrong list on screen.
+On connect, a device a few patches behind (after the stream's lifetime ran
+out, say) gets those patches, when the log still holds every one since the
+version it sent. Otherwise it gets the signal or fragment. The device also
+fetches the region when a patch's `from` is not the version it holds, so a
+lost patch can never leave a wrong list on screen.
 
 ## Sessions and security
 
@@ -1276,7 +1280,9 @@ event id, the event name, `enc` and `body`, one per line. An event only
 verifies on the stream it was sent on.
 
 - On connect, one event per region whose current token differs from the one
-  the device sent (or that it sent none for), in the order asked for.
+  the device sent (or that it sent none for), in the order asked for. A
+  region the patch log can bring from the device's version to the current
+  one gets its `patch` events instead.
 - After that, one event for each region a push touched, in every
   subscription it touched.
 - The event is `signal` for a region that is not shared. Its body is

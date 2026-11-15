@@ -168,16 +168,82 @@ it('sends a patch to every stream watching the region', function () {
         ->and($patches[0]['patch'])->toBe($patches[1]['patch']);
 });
 
-it('signals on connect rather than replaying patches to a device that is behind', function () {
+it('replays the patches on connect to a device a few patches behind', function () {
     $held = feedVersion($this);
     Asgard::patch(FEED)->prepend(item('c'), into: 'items');
     Asgard::patch(FEED)->prepend(item('d'), into: 'items');
 
     $events = allEvents($this->asgardStream(feedStream(['versions' => ['feed' => $held]]))->streamedContent());
 
-    expect($events)->toHaveCount(1)
-        ->and($events[0][0])->toBe('signal')
+    expect(array_column($events, 0))->toBe(['patch', 'patch'])
+        ->and($events[0][1]['from'])->toBe($held)
+        ->and($events[1][1]['from'])->toBe($events[0][1]['version'])
+        ->and($events[1][1]['version'])->toBe(feedVersion($this))
+        ->and(array_map(fn ($e) => $e[1]['patch']['nodes'][0]['key'], $events))->toBe(['c', 'd']);
+});
+
+it('replays a channel patch on connect', function () {
+    $render = fn () => $this->asgard(asgardBody(['component' => 'app.native.screens.channel', 'regions' => ['body'], 'state' => ['promo' => 42]]))->json('fragments.body.version');
+    $held = $render();
+    Asgard::to('promo.42')->patch(ChannelScreen::class, 'body')->append(item('x'), into: 'list');
+
+    $events = allEvents($this->asgardStream(channelStreamBody(['versions' => ['body' => $held]]))->streamedContent());
+
+    expect(array_column($events, 0))->toBe(['patch'])
+        ->and($events[0][1]['from'])->toBe($held)
+        ->and($events[0][1]['version'])->toBe($render());
+});
+
+it('carries on patching after replaying on connect', function () {
+    $held = feedVersion($this);
+    Asgard::patch(FEED)->prepend(item('c'), into: 'items');
+    $this->clock->onSleep[1] = fn () => Asgard::patch(FEED)->prepend(item('d'), into: 'items');
+
+    $events = allEvents($this->asgardStream(feedStream(['versions' => ['feed' => $held]]))->streamedContent());
+
+    expect(array_column($events, 0))->toBe(['patch', 'patch'])
+        ->and($events[1][1]['from'])->toBe($events[0][1]['version'])
+        ->and($events[1][1]['version'])->toBe(feedVersion($this));
+});
+
+it('signals on connect when the patches since the held version are not all in the log', function (Closure $between) {
+    $held = feedVersion($this);
+    Asgard::patch(FEED)->prepend(item('c'), into: 'items');
+    $between();
+    Asgard::patch(FEED)->prepend(item('d'), into: 'items');
+
+    $events = allEvents($this->asgardStream(feedStream(['versions' => ['feed' => $held]]))->streamedContent());
+
+    expect(array_column($events, 0))->toBe(['signal'])
         ->and($events[0][1]['version'])->toBe(feedVersion($this));
+})->with([
+    'a plain region push' => [fn () => Asgard::push(FEED, 'feed')],
+    'a component push' => [fn () => Asgard::push(FEED)],
+    'an expired entry' => [fn () => cache()->forget(PushVersions::logKey(PushVersions::regionKey(FEED, 'feed'), 1))],
+]);
+
+it('signals on connect when the device is further behind than the log keeps', function () {
+    usePatchLog($this, 2);
+    $held = feedVersion($this);
+
+    foreach (['c', 'd', 'e'] as $key) {
+        Asgard::patch(FEED)->prepend(item($key), into: 'items');
+    }
+
+    expect(array_column(allEvents($this->asgardStream(feedStream(['versions' => ['feed' => $held]]))->streamedContent()), 0))->toBe(['signal']);
+});
+
+it('signals on connect for a version the server never gave', function () {
+    Asgard::patch(FEED)->prepend(item('c'), into: 'items');
+
+    expect(array_column(allEvents($this->asgardStream(feedStream(['versions' => ['feed' => 'not-a-real-version']]))->streamedContent()), 0))->toBe(['signal']);
+});
+
+it('signals on connect when the newest entry is not written yet', function () {
+    $held = feedVersion($this);
+    cache()->increment(PushVersions::regionKey(FEED, 'feed'));
+
+    expect(array_column(allEvents($this->asgardStream(feedStream(['versions' => ['feed' => $held]]))->streamedContent()), 0))->toBe(['signal']);
 });
 
 it('keeps patching after a connect signal, from the signalled version', function () {
@@ -269,6 +335,34 @@ it('waits one poll for a newest entry that is not written yet', function () {
 
 it('signals when a missing newest entry is still missing on the next poll', function () {
     $this->clock->onSleep[1] = fn () => cache()->increment(PushVersions::regionKey(FEED, 'feed'));
+
+    expect(array_column(allEvents(heldFeedStream($this)), 0))->toBe(['signal']);
+});
+
+it('waits patch_wait_ms for a newest entry, over several fast polls', function () {
+    config()->set('asgard.stream.poll_ms', 100);
+    config()->set('asgard.stream.patch_wait_ms', 250);
+    $counter = PushVersions::regionKey(FEED, 'feed');
+    $entry = ['patch' => json_encode(['op' => 'remove', 'target' => 'items', 'keys' => ['a']]), 'types' => []];
+
+    // The process writing the patch stalls for three polls between the bump and the entry.
+    $this->clock->onSleep[1] = fn () => cache()->increment($counter);
+    $this->clock->onSleep[4] = fn () => cache()->put(PushVersions::logKey($counter, 1), $entry, 60);
+
+    $events = allEvents(heldFeedStream($this));
+
+    expect(array_column($events, 0))->toBe(['patch'])
+        ->and($events[0][1]['version'])->toBe(feedVersion($this));
+});
+
+it('signals once a missing newest entry has been waited for patch_wait_ms', function () {
+    config()->set('asgard.stream.poll_ms', 100);
+    config()->set('asgard.stream.patch_wait_ms', 250);
+    $counter = PushVersions::regionKey(FEED, 'feed');
+    $entry = ['patch' => json_encode(['op' => 'remove', 'target' => 'items', 'keys' => ['a']]), 'types' => []];
+
+    $this->clock->onSleep[1] = fn () => cache()->increment($counter);
+    $this->clock->onSleep[5] = fn () => cache()->put(PushVersions::logKey($counter, 1), $entry, 60);
 
     expect(array_column(allEvents(heldFeedStream($this)), 0))->toBe(['signal']);
 });

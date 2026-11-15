@@ -46,8 +46,9 @@ use Throwable;
  * instead, with the version before and after it, when the push store's
  * patch log covers every step since the last event and nothing else moved
  * it. Otherwise it gets the signal or fragment as above. On connect a
- * device behind the current version always gets the signal or fragment,
- * never a replay of patches.
+ * device a few patches behind gets those patches, when the log still holds
+ * every one since the version it sent. Any other device behind the current
+ * version gets the signal or fragment.
  *
  * Each subscription joins the channels its component's channels() names,
  * worked out once from its own state and the request's user. One poll
@@ -72,6 +73,9 @@ class StreamController
     public const VERSION_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/D';
 
     public const RETRY_MS = 3000;
+
+    /** How long a missing newest patch log entry is waited for, by default. */
+    public const PATCH_WAIT_MS = 250;
 
     /**
      * connection_aborted() only notices a dead client on a write, so this
@@ -141,11 +145,19 @@ class StreamController
         // already holds at the current version is left out.
         $elements = $this->secure($request)->elements;
         $initial = [];
+        $catchUp = [];
         foreach ($subscriptions as $id => $subscription) {
             foreach ($subscription['regions'] as $region) {
                 $version = PushVersions::token($subscription['component'], $region, $subscription['channels'], $seen[$id]);
+                $held = $subscription['versions'][$region] ?? null;
 
-                if (($subscription['versions'][$region] ?? null) === $version) {
+                if ($held === $version) {
+                    continue;
+                }
+
+                if ($held !== null && ($patches = $this->catchUp($subscription, $region, $held, $seen[$id], $elements)) !== null) {
+                    $catchUp[] = [$id, $region, ...$patches];
+
                     continue;
                 }
 
@@ -164,7 +176,7 @@ class StreamController
         $secure = $this->secure($request);
 
         return new StreamedResponse(
-            fn () => $this->stream($secure, $subscriptions, $watches, $seen, $initial),
+            fn () => $this->stream($secure, $subscriptions, $watches, $seen, $initial, $catchUp),
             200,
             [
                 'Content-Type' => 'text/event-stream',
@@ -172,6 +184,76 @@ class StreamController
                 'X-Accel-Buffering' => 'no',
             ],
         );
+    }
+
+    /**
+     * The patches that take a region from the version a device holds to the
+     * current one, when the device is only a few patches behind: the counters
+     * behind its version, the steps and their log entries. Null sends the
+     * signal or fragment instead.
+     *
+     * A version token is a digest, so the counters behind it are found by
+     * trying each region counter a step at a time back, at most as far as
+     * the log keeps. Only one counter may have moved, as in a poll, and
+     * every entry must be a patch this client can draw. An entry not
+     * written yet counts as missing: the device gets the whole region, as it
+     * did before.
+     *
+     * @param  array{component: string, channels: list<string>}  $subscription
+     * @param  array{component: list<int>, regions: array<string, list<int>>}  $current
+     * @param  list<string>  $elements
+     * @return array{list<int>, array{index: int, keys: list<string>}, array<string, mixed>}|null
+     */
+    protected function catchUp(array $subscription, string $region, string $held, array $current, array $elements): ?array
+    {
+        $cap = $this->versions->patchLog();
+        $after = $current['regions'][$region] ?? [];
+        $before = null;
+
+        foreach ($after as $index => $value) {
+            for ($back = 1; $back <= min($cap, $value) && $before === null; $back++) {
+                $candidate = $after;
+                $candidate[$index] = $value - $back;
+
+                $token = PushVersions::token($subscription['component'], $region, $subscription['channels'], [
+                    'component' => $current['component'],
+                    'regions' => [$region => $candidate],
+                ]);
+
+                if ($token === $held) {
+                    $before = $candidate;
+                }
+            }
+        }
+
+        if ($before === null) {
+            return null;
+        }
+
+        $steps = $this->patchSteps($subscription, $region, $before, $after, $cap);
+
+        if ($steps === null) {
+            return null;
+        }
+
+        try {
+            $log = $this->versions->entries($steps['keys']);
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
+
+        foreach ($steps['keys'] as $key) {
+            $entry = $log[$key] ?? null;
+
+            if (! is_array($entry) || ! is_string($entry['patch'] ?? null)
+                || FragmentValidator::unknownTypes((array) ($entry['types'] ?? []), $elements) !== []) {
+                return null;
+            }
+        }
+
+        return [$before, $steps, $log];
     }
 
     /**
@@ -382,17 +464,21 @@ class StreamController
      * @param  array<string, array{address: string, regions: list<string>, channels: list<string>}>  $watches
      * @param  array<string, array{component: list<int>, regions: array<string, list<int>>}>  $seen
      * @param  list<array{string, string, string, array{fragment: array, chrome?: object}|null}>  $initial
+     * @param  list<array{string, string, list<int>, array{index: int, keys: list<string>}, array<string, mixed>}>  $catchUp
      */
-    protected function stream(SecureRequest $secure, array $subscriptions, array $watches, array $seen, array $initial): void
+    protected function stream(SecureRequest $secure, array $subscriptions, array $watches, array $seen, array $initial, array $catchUp = []): void
     {
         $lifetime = max(1, (int) config('asgard.stream.lifetime', 300));
         $poll = max(10, (int) config('asgard.stream.poll_ms', 500));
+        $wait = max(0, (int) config('asgard.stream.patch_wait_ms', self::PATCH_WAIT_MS));
         $cap = $this->versions->patchLog();
 
-        // Per subscription and region, a log entry found missing on the last
-        // poll. A patch's counter is bumped just before its entry is
-        // written, so a poll can land between the two. One poll later a
-        // missing entry really is gone.
+        // Per subscription and region, the newest log entry found missing
+        // and when it was first missed. A patch's counter is bumped just
+        // before its entry is written, so a poll can land between the two,
+        // and the process writing it can stall there for a while. Once
+        // patch_wait_ms has gone by (and at least one more poll), a missing
+        // entry really is gone.
         $waiting = [];
 
         if (PHP_SAPI !== 'cli' && function_exists('set_time_limit')) {
@@ -406,6 +492,12 @@ class StreamController
         $eventId = self::eventId($seen);
         foreach ($initial as [$id, $region, $version, $answer]) {
             $this->send($secure, $eventId, $id, $region, $version, $answer, ComponentMetadata::for($subscriptions[$id]['class'])->compresses($region));
+        }
+
+        // A device a few patches behind gets them now, every entry already read.
+        foreach ($catchUp as [$id, $region, $before, $steps, $log]) {
+            $none = [];
+            $this->sendPatches($secure, $eventId, $id, $region, $subscriptions[$id], $seen[$id], $before, $steps, $log, $none, ComponentMetadata::for($subscriptions[$id]['class'])->compresses($region), $start);
         }
 
         // Polls run on a fixed schedule, at start + n * poll_ms, so the work
@@ -476,7 +568,7 @@ class StreamController
                 $compress = ComponentMetadata::for($subscription['class'])->compresses($region);
 
                 if ($steps !== null) {
-                    $sent = $this->sendPatches($secure, $eventId, $id, $region, $subscription, $current[$id], $seen[$id]['regions'][$region], $steps, $log, $waiting, $compress);
+                    $sent = $this->sendPatches($secure, $eventId, $id, $region, $subscription, $current[$id], $seen[$id]['regions'][$region], $steps, $log, $waiting, $compress, $now, $wait);
 
                     if ($sent !== null) {
                         $next[$id]['regions'][$region] = $sent;
@@ -564,18 +656,19 @@ class StreamController
      * that is gone, or a patch with an element type this client did not
      * advertise. Nothing is sent before a fall back is known.
      *
-     * Missing entries at the end only hold the region back for one poll
-     * (see $waiting), sending the ones before them.
+     * Missing entries at the end hold the region back for up to
+     * patch_wait_ms, and at least one poll (see $waiting), sending the ones
+     * before them.
      *
      * @param  array{component: string, channels: list<string>}  $subscription
      * @param  array{component: list<int>, regions: array<string, list<int>>}  $current
      * @param  list<int>  $before
      * @param  array{index: int, keys: list<string>}  $steps
      * @param  array<string, mixed>  $log
-     * @param  array<string, array<string, int>>  $waiting
+     * @param  array<string, array<string, array{value: int, since: float}>>  $waiting
      * @return list<int>|null
      */
-    protected function sendPatches(SecureRequest $secure, string $eventId, string $id, string $region, array $subscription, array $current, array $before, array $steps, array $log, array &$waiting, bool $compress): ?array
+    protected function sendPatches(SecureRequest $secure, string $eventId, string $id, string $region, array $subscription, array $current, array $before, array $steps, array $log, array &$waiting, bool $compress, float $now = 0.0, int $wait = 0): ?array
     {
         $index = $steps['index'];
         $entries = [];
@@ -588,11 +681,22 @@ class StreamController
                 $rest = array_slice($steps['keys'], $step);
                 $allMissing = array_filter($rest, fn ($k) => ($log[$k] ?? null) !== null) === [];
 
-                if (! $allMissing || ($waiting[$id][$region] ?? null) === $value) {
+                if (! $allMissing) {
                     return null;
                 }
 
-                $waiting[$id][$region] = $value;
+                $since = ($waiting[$id][$region]['value'] ?? null) === $value
+                    ? $waiting[$id][$region]['since']
+                    : null;
+
+                // Missed on an earlier poll, and waited long enough.
+                if ($since !== null && ($now - $since) * 1000 >= $wait - self::MARGIN_MS) {
+                    return null;
+                }
+
+                if ($since === null) {
+                    $waiting[$id][$region] = ['value' => $value, 'since' => $now];
+                }
 
                 break;
             }
@@ -604,7 +708,7 @@ class StreamController
 
             $entries[] = $entry['patch'];
 
-            if (($waiting[$id][$region] ?? null) === $value) {
+            if (($waiting[$id][$region]['value'] ?? null) === $value) {
                 unset($waiting[$id][$region]);
             }
         }

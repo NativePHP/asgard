@@ -90,12 +90,17 @@ return [
     |           region counter, for up to 60 seconds. A stream that falls
     |           further behind than this signals the region instead. 0
     |           keeps none, so every patch arrives as a signal.
+    | patch_wait_ms: how long a stream holds a region back when the newest
+    |           patch's log entry is not written yet, before it signals the
+    |           region instead. The entry is written just after the counter
+    |           moves, but the process writing it can stall in between.
     */
     'stream' => [
         'store' => env('ASGARD_STREAM_STORE'),
         'lifetime' => (int) env('ASGARD_STREAM_LIFETIME', 300),
         'poll_ms' => (int) env('ASGARD_STREAM_POLL_MS', 500),
         'patch_log' => (int) env('ASGARD_STREAM_PATCH_LOG', 256),
+        'patch_wait_ms' => (int) env('ASGARD_STREAM_PATCH_WAIT_MS', 250),
     ],
 
     /*
