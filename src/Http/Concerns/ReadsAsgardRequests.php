@@ -9,6 +9,8 @@ use Native\Asgard\ClientCache;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidFragment;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Exceptions\TooManyRegions;
+use Native\Asgard\Http\RenderController;
 use Native\Asgard\Http\SecureRequest;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\Channels;
@@ -168,6 +170,67 @@ trait ReadsAsgardRequests
         }
 
         $component->setAsgardClientCache($caches);
+    }
+
+    /**
+     * A list of region names, as render's `regions` and a call's or
+     * upload's `regions` carry them. Over asgard.max_regions, nothing in
+     * the request is looked at further.
+     *
+     * @return list<string>
+     */
+    protected function regionList(mixed $regions, bool $allowEmpty = false): array
+    {
+        if (! is_array($regions) || ! array_is_list($regions) || (! $allowEmpty && $regions === [])) {
+            throw new InvalidRequest($allowEmpty ? 'regions must be a list of region names.' : 'regions must be a list of at least one region name.');
+        }
+
+        $max = RenderController::maxRegions();
+        if (count($regions) > $max) {
+            throw new TooManyRegions("A request names at most {$max} regions.");
+        }
+
+        foreach ($regions as $i => $region) {
+            $this->regionName($region, "regions[{$i}]");
+        }
+
+        if (count(array_unique($regions)) !== count($regions)) {
+            throw new InvalidRequest('regions must not repeat a name.');
+        }
+
+        return $regions;
+    }
+
+    /**
+     * The request's `read_only` member: the state keys the server may read
+     * but never change. Each one must be a key of `state`, named once.
+     *
+     * @param  array<string, mixed>  $state
+     * @return list<string>
+     */
+    protected function readOnly(mixed $readOnly, array $state, string $field = 'read_only'): array
+    {
+        $readOnly ??= [];
+
+        if (! is_array($readOnly) || ! array_is_list($readOnly)) {
+            throw new InvalidRequest("{$field} must be a list of state keys.");
+        }
+
+        if (count($readOnly) > count($state)) {
+            throw new InvalidRequest("{$field} names more keys than state has.");
+        }
+
+        foreach ($readOnly as $i => $key) {
+            if (! is_string($key) || ! array_key_exists($key, $state)) {
+                throw new InvalidRequest("{$field}[{$i}] must be a key of state.");
+            }
+        }
+
+        if (count(array_unique($readOnly)) !== count($readOnly)) {
+            throw new InvalidRequest("{$field} must not repeat a key.");
+        }
+
+        return $readOnly;
     }
 
     /** @return array<string, mixed> */

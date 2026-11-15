@@ -75,7 +75,7 @@ function cacheUpload(array $args, mixed $cache): string
 it('stamps a render with made_at and the region max age', function () {
     $response = $this->asgard(cacheBody())->assertOk();
 
-    expect(array_keys($response->json()))->toBe(['protocol', 'fragments'])
+    expect(array_keys($response->json()))->toBe(['protocol', 'delta', 'fragments'])
         ->and(array_keys($response->json('fragments.stats')))->toBe(['version', 'made_at', 'max_age', 'fragment'])
         ->and($response->json('fragments.stats.made_at'))->toBe($this->now)
         ->and($response->json('fragments.stats.max_age'))->toBe(60);
@@ -176,7 +176,7 @@ it('stamps a shared fragment on the stream once, for every device', function () 
 it('skips a fresh region without calling its method', function () {
     $response = $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(10)]]))->assertOk();
 
-    expect($response->getContent())->toBe('{"protocol":1,"fragments":{"stats":{"cached":true}}}')
+    expect($response->getContent())->toBe('{"protocol":1,"delta":{},"fragments":{"stats":{"cached":true}}}')
         ->and($response->headers->has('Asgard-Cache'))->toBeFalse()
         ->and(CacheScreen::$calls)->toBe([]);
 });
@@ -220,7 +220,7 @@ it('skips a fresh server screen', function () {
         'cache' => ['screen' => cachedCopy(5)],
     ])->assertOk();
 
-    expect($response->getContent())->toBe('{"protocol":1,"fragments":{"screen":{"cached":true}}}')
+    expect($response->getContent())->toBe('{"protocol":1,"delta":{},"fragments":{"screen":{"cached":true}}}')
         ->and(PromoScreen::$calls)->toBe([]);
 });
 
@@ -249,6 +249,7 @@ it('keeps a fresh region cached through an action that does not force', function
 
     expect($response->json())->toBe([
         'protocol' => 1,
+        'delta' => ['count' => 2],
         'fragments' => [
             'stats' => ['cached' => true],
             'greeting' => ['cached' => true],
@@ -324,7 +325,7 @@ it('lets checkClientCache() force invalidation for a stale copy', function () {
     // Made after it: still skipped.
     $fresh = $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(1)]]))->assertOk();
 
-    expect($fresh->getContent())->toBe('{"protocol":1,"fragments":{"stats":{"cached":true}}}')
+    expect($fresh->getContent())->toBe('{"protocol":1,"delta":{},"fragments":{"stats":{"cached":true}}}')
         ->and(CacheScreen::$calls)->toBe(['stats']);
 });
 
@@ -476,7 +477,7 @@ it('tells the component when a render was fetched for a push', function () {
 it('does not force anything for a push by itself', function () {
     $this->asgard(cacheBody(['reason' => 'push', 'cache' => ['stats' => cachedCopy(5)]]))
         ->assertOk()
-        ->assertExactJson(['protocol' => 1, 'fragments' => ['stats' => ['cached' => true]]]);
+        ->assertExactJson(['protocol' => 1, 'delta' => [], 'fragments' => ['stats' => ['cached' => true]]]);
 });
 
 it('lets checkClientCache() force invalidation for a push fetch', function () {

@@ -24,6 +24,7 @@ use Native\Asgard\Tests\Fixtures\HomeScreen;
 use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RowsScreen;
 use Native\Asgard\Tests\Fixtures\ServerMethodScreen;
+use Native\Asgard\Tests\Fixtures\StateScreen;
 use Native\Asgard\Tests\Fixtures\TopBarViewScreen;
 use Native\Asgard\Tests\Fixtures\UploadScreen;
 use Orchestra\Testbench\TestCase as BaseTestCase;
@@ -69,6 +70,7 @@ abstract class TestCase extends BaseTestCase
             'app.native.screens.uploads' => UploadScreen::class,
             'app.native.screens.computed' => ComputedScreen::class,
             'app.native.screens.cache' => CacheScreen::class,
+            'app.native.screens.state' => StateScreen::class,
         ]);
         $app['config']->set('view.paths', [__DIR__.'/Fixtures/views']);
         $app['config']->set('asgard.blade.compiled', sys_get_temp_dir().'/asgard-region-views-'.getmypid());
@@ -87,6 +89,7 @@ abstract class TestCase extends BaseTestCase
         UploadScreen::$calls = [];
         ComputedScreen::$mode = null;
         ComputedScreen::$totals = 0;
+        StateScreen::$calls = [];
         CacheScreen::reset();
         FeedScreen::$items = ['a', 'b'];
         FeedScreen::$liked = [];

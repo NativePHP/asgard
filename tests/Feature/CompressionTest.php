@@ -52,14 +52,37 @@ it('does not compress a fragment below the minimum size', function () {
         ->and($response->headers->get('Asgard-Content-Coding'))->toBe('identity');
 });
 
-it('compresses an action answer the way its region says', function () {
-    $this->asgard(rowsBody('rows', 200, ['action' => ['call' => 'more', 'args' => []]]))
-        ->assertOk()->assertJsonCount(210, 'fragments.rows.fragment')
+it('compresses an action answer with an empty delta the way its region says', function () {
+    $this->asgard(rowsBody('rows', 200, ['action' => ['call' => 'look', 'args' => []]]))
+        ->assertOk()->assertJsonPath('delta', [])->assertJsonCount(200, 'fragments.rows.fragment')
         ->assertHeader('Asgard-Content-Coding', 'gzip');
 
-    $this->asgard(rowsBody('private', 200, ['action' => ['call' => 'more', 'args' => []]]))
-        ->assertOk()->assertJsonCount(210, 'fragments.private.fragment')
+    $this->asgard(rowsBody('private', 200, ['action' => ['call' => 'look', 'args' => []]]))
+        ->assertOk()->assertJsonCount(200, 'fragments.private.fragment')
         ->assertHeader('Asgard-Content-Coding', 'identity');
+});
+
+it('never compresses an answer whose delta carries anything', function () {
+    // The action changed count, so the delta is not empty.
+    $this->asgard(rowsBody('rows', 200, ['action' => ['call' => 'more', 'args' => []]]))
+        ->assertOk()->assertJsonPath('delta', ['count' => 210])->assertJsonCount(210, 'fragments.rows.fragment')
+        ->assertHeader('Asgard-Content-Coding', 'identity');
+
+    // A configured key the device holds a stale copy of.
+    config()->set('asgard.state', ['build' => '2']);
+
+    $this->asgard(rowsBody('rows', 200, ['state' => ['count' => 200, 'build' => '1']]))
+        ->assertOk()->assertJsonPath('delta', ['build' => '2'])
+        ->assertHeader('Asgard-Content-Coding', 'identity');
+});
+
+it('keeps a plain render compressed when the device already holds every value', function () {
+    config()->set('asgard.state', ['build' => '2', 'unsent' => true]);
+
+    // build matches, and a key the device never sent has nowhere to go.
+    $this->asgard(rowsBody('rows', 200, ['state' => ['count' => 200, 'build' => '2']]))
+        ->assertOk()->assertJsonPath('delta', [])
+        ->assertHeader('Asgard-Content-Coding', 'gzip');
 });
 
 it('never compresses an error', function () {

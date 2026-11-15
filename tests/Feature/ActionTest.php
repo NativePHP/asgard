@@ -28,6 +28,7 @@ it('runs a marked action and renders the region it changed', function () {
     expect($response->json('fragments.greeting.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
     $response->assertExactJson([
         'protocol' => 1,
+        'delta' => ['count' => 5, 'name' => 'Simon!'],
         'fragments' => [
             'greeting' => [
                 'version' => $response->json('fragments.greeting.version'),

@@ -9,6 +9,7 @@ use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Exceptions\TooManyRegions;
+use Native\Asgard\Http\Concerns\AnswersWithDelta;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Http\Concerns\RendersRegions;
 use Native\Asgard\Support\ActionInvoker;
@@ -17,8 +18,25 @@ use Native\Asgard\Support\ComponentMetadata;
 use Native\Asgard\Support\Hydrator;
 use Native\Asgard\Support\PushVersions;
 
+/**
+ * Renders regions, and runs a tap's action first when the body carries one.
+ *
+ *     → {"protocol":1,"component":"…","regions":["greeting"],"state":{…},"read_only":["platform"]}
+ *     ← {"protocol":1,"delta":{},"fragments":{"greeting":{…}}}
+ *
+ * Every answer carries `delta`, after the regions are rendered, so the
+ * fragments always match it. An action's delta is a call's: the props it
+ * or the render changed, every #[Computed] value and the `asgard.state`
+ * keys. A plain render's is only what the device now holds wrongly, so it
+ * is usually `{}` (AnswersWithDelta).
+ *
+ * An answer is compressed only when its delta is empty and every region in
+ * it allows compression. A delta mixes the server's values with text the
+ * device chose, which a region's opt-out cannot see (§7.4).
+ */
 class RenderController
 {
+    use AnswersWithDelta;
     use ReadsAsgardRequests;
     use RendersRegions;
 
@@ -80,6 +98,7 @@ class RenderController
 
         try {
             Hydrator::hydrate($component, $payload['state']);
+            $before = $this->fingerprints($component);
 
             // Channels and tokens come from the state as the device sent it,
             // before any action runs. They are read before the render, so a
@@ -109,15 +128,27 @@ class RenderController
             return $parts;
         }
 
-        $answer = ['protocol' => self::PROTOCOL, 'fragments' => $parts];
+        $where = $action
+            ? $class.'::'.$action['call'].'()'
+            : $class.' rendering ['.implode(', ', $regions).']';
+
+        $delta = $this->stateDelta($component, $metadata, $before, $payload['state'], $payload['read_only'], $action !== null, $where);
+
+        if ($delta instanceof JsonResponse) {
+            return $delta;
+        }
+
+        $answer = ['protocol' => self::PROTOCOL, 'delta' => (object) $delta, 'fragments' => $parts];
 
         if ($hints !== []) {
             $answer['refresh'] = $hints;
         }
 
         // An answer is compressed only when every region in it allows it, so
-        // a region that opted out is never in a compressed body.
-        $compress = true;
+        // a region that opted out is never in a compressed body, and only
+        // when the delta is empty, since a delta can mix the server's values
+        // with text the device chose (§7.4).
+        $compress = $delta === [];
         foreach ($regions as $region) {
             $compress = $compress && $metadata->compresses($region);
         }
@@ -134,7 +165,7 @@ class RenderController
      * `cache` lists the copies of regions the client holds. `push` is
      * whether the body said `"reason": "push"`.
      *
-     * @return array{component: string, regions: list<string>, state: array<string, mixed>, action: array{call: string, args: list<mixed>}|null, cache: array<string, array{made_at: int, ttl: int}>, push: bool}
+     * @return array{component: string, regions: list<string>, state: array<string, mixed>, read_only: list<string>, action: array{call: string, args: list<mixed>}|null, cache: array<string, array{made_at: int, ttl: int}>, push: bool}
      */
     protected function payload(Request $request): array
     {
@@ -145,9 +176,10 @@ class RenderController
             throw new InvalidRequest('region is not a field. Send regions, a list even for one region.');
         }
 
-        $regions = $this->regionNames($body['regions'] ?? null);
+        $regions = $this->regionList($body['regions'] ?? null);
 
         $state = $this->state($body['state'] ?? null);
+        $read_only = $this->readOnly($body['read_only'] ?? null, $state);
 
         $action = array_key_exists('action', $body) ? $this->action($body['action']) : null;
 
@@ -165,7 +197,7 @@ class RenderController
 
         $push = array_key_exists('reason', $body);
 
-        return compact('component', 'regions', 'state', 'action', 'cache', 'push');
+        return compact('component', 'regions', 'state', 'read_only', 'action', 'cache', 'push');
     }
 
     /**
@@ -174,30 +206,6 @@ class RenderController
     public static function maxRegions(): int
     {
         return max(1, (int) config('asgard.max_regions', self::MAX_REGIONS));
-    }
-
-    /** @return list<string> */
-    protected function regionNames(mixed $regions): array
-    {
-        if (! is_array($regions) || ! array_is_list($regions) || $regions === []) {
-            throw new InvalidRequest('regions must be a list of at least one region name.');
-        }
-
-        // Over the limit, nothing in the request is looked at further.
-        $max = self::maxRegions();
-        if (count($regions) > $max) {
-            throw new TooManyRegions("A request names at most {$max} regions.");
-        }
-
-        foreach ($regions as $i => $region) {
-            $this->regionName($region, "regions[{$i}]");
-        }
-
-        if (count(array_unique($regions)) !== count($regions)) {
-            throw new InvalidRequest('regions must not repeat a name.');
-        }
-
-        return $regions;
     }
 
     /** @return array{call: string, args: list<mixed>} */

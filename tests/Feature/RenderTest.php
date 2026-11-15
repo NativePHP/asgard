@@ -13,6 +13,7 @@ it('renders a region over QUERY', function () {
     expect($response->json('fragments.greeting.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
     $response->assertExactJson([
         'protocol' => 1,
+        'delta' => [],
         'fragments' => [
             'greeting' => [
                 'version' => $response->json('fragments.greeting.version'),
@@ -188,6 +189,7 @@ it('strips internal prop keys', function () {
     expect($response->json('fragments.props.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
     $response->assertExactJson([
         'protocol' => 1,
+        'delta' => [],
         'fragments' => [
             'props' => [
                 'version' => $response->json('fragments.props.version'),

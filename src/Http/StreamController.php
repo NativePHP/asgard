@@ -298,10 +298,16 @@ class StreamController
 
             $regions = $this->regions($subscription['regions'] ?? null, "{$field}.regions");
 
+            $state = $this->state($subscription['state'] ?? null);
+
+            // Checked like everywhere else that takes state. A stream sends
+            // no delta, so there is nothing more to do with it.
+            $this->readOnly($subscription['read_only'] ?? null, $state, "{$field}.read_only");
+
             $checked[$id] = [
                 'component' => $this->component($subscription['component'] ?? null, "{$field}.component"),
                 'regions' => $regions,
-                'state' => $this->state($subscription['state'] ?? null),
+                'state' => $state,
                 'versions' => $this->versions($subscription['versions'] ?? null, $regions, "{$field}.versions"),
             ];
         }

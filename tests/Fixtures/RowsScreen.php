@@ -30,6 +30,10 @@ class RowsScreen extends ServerComponent
         $this->count += 10;
     }
 
+    /** Changes nothing, so its answer's delta is empty. */
+    #[ServerAction]
+    public function look(): void {}
+
     /** Grows, and redraws both regions in one answer. */
     #[ServerAction]
     public function grow(): void

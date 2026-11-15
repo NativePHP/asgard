@@ -29,7 +29,7 @@ it('renders the regions an action asked for in the same answer', function () {
     $response = $this->asgard(refreshAction(['call' => 'redraw', 'args' => ['list', 'tags']]))->assertOk();
 
     // The action's own region comes first, then the ones it asked for.
-    expect(array_keys($response->json()))->toBe(['protocol', 'fragments'])
+    expect(array_keys($response->json()))->toBe(['protocol', 'delta', 'fragments'])
         ->and($response->json('fragments.greeting.fragment.children.2.props.text'))->toBe('Count: 3')
         ->and(array_keys($response->json('fragments')))->toBe(['greeting', 'list', 'tags'])
         ->and($response->json('fragments.list.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/')
@@ -56,11 +56,11 @@ it('renders the action\'s own region once when the action names it too', functio
 it('answers only the action\'s own region when an action asks for nothing', function () {
     $response = $this->asgard(refreshAction(['call' => 'shuffle', 'args' => []]))->assertOk();
 
-    expect(array_keys($response->json()))->toBe(['protocol', 'fragments'])
+    expect(array_keys($response->json()))->toBe(['protocol', 'delta', 'fragments'])
         ->and(array_keys($response->json('fragments')))->toBe(['greeting']);
 });
 
-it('renders the regions a #[Server] call asked for after the delta', function () {
+it('renders the regions a #[Server] call asked for in the same answer', function () {
     $response = $this->asgard(serverCall('rollAndRedraw', ['rolled', 'chart']), 'QUERY', [], 'call')->assertOk();
 
     expect($response->json('delta'))->toBe(['roll' => 6])
@@ -168,7 +168,7 @@ it('renders several regions in one answer, keyed by region', function () {
 
     $response = $this->asgard($body)->assertOk();
 
-    expect(array_keys($response->json()))->toBe(['protocol', 'fragments'])
+    expect(array_keys($response->json()))->toBe(['protocol', 'delta', 'fragments'])
         ->and(array_keys($response->json('fragments')))->toBe(['greeting', 'tags'])
         ->and($response->json('fragments.greeting.fragment.children.0.props.text'))->toBe('Hello, Simon')
         ->and($response->json('fragments.tags.fragment.children.0.props.text'))->toBe('x');

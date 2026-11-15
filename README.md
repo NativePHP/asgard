@@ -251,8 +251,9 @@ most 4 deep. Anything else throws `InvalidFragment` when you build the node.
 
 A tap on a server callback sends the render request again with an `action`
 key. The server hydrates the component, runs the action, then renders the
-requested region and returns it. Changes the action makes to props only live
-for that request. They are not sent back as state.
+requested region and returns it. The props the action changed come back in
+the answer's `delta`, as a call's do, and the device applies them before it
+paints the region.
 
 An action method must be public, non-static, declared on the registered class
 itself (or a trait it uses), and carry `#[ServerAction]`. It cannot also be a
@@ -293,15 +294,22 @@ method marked with it can be reached from a fragment's callback and from a
 device's `#[Server]` method, and a public method without it can be reached
 from neither. The rules are the ones above: public, non-static, declared on
 the registered class itself (or a trait it uses), not a `#[Region]`, and
-params limited to plain JSON types. Nothing is rendered unless the method
-asks for it with `refresh()`, below.
+params limited to plain JSON types. Nothing is rendered unless the device
+names regions in the call, with `#[Server(render: ...)]` on its side, or the
+method asks for them with `refresh()`, below. Both lists are rendered
+together once the method has run.
+
+Every other answer sends state back too. An action, a tap inside a region,
+sends back what it changed exactly as a call does. A plain render sends back
+any prop that changed while it rendered. See "State in every answer" below.
 
 ### Computed values
 
 A public method marked `#[Computed]` is a value the server works out. It is
-called each time a `#[Server]` call or an upload is answered, after the
-method ran, and its result goes in the delta under the method's name, every
-time, whether it changed or not:
+called each time an answer is built, after the method or the render ran. A
+call, an upload or an action puts it in the delta under the method's name
+every time, whether it changed or not. A plain render puts it there only
+when the device sent a different value under that name:
 
 ```php
 use Native\Asgard\Attributes\Computed;
@@ -381,8 +389,10 @@ let it through:
 
 Two options in `config/asgard.php` add the same facts to every answer.
 
-`state` adds keys to the delta of every `#[Server]` call and upload answer,
-after the changed props and computed values, every time:
+`state` adds keys to the delta of every answer, after the changed props and
+computed values. A call, an upload or an action sends them every time. A
+plain render sends one only when the device sent a different value under
+that name:
 
 ```php
 'state' => [
@@ -421,8 +431,42 @@ These headers are not encrypted and the response signature does not cover
 them, so only TLS protects them. Do not put anything in them that the
 encryption is meant to protect.
 
-Renders carry no delta today, so `state` and computed values do not reach a
-region render or a pushed fragment. Only the headers do. That is a known gap.
+A fragment pushed on the stream carries no delta, so `state` and computed
+values do not reach it. Only the headers do.
+
+### State in every answer
+
+Every answer from render, call and upload carries a `delta`, the state the
+device should take on. The device applies it, then paints the fragments.
+The server renders before it works out the delta, so the two always match.
+
+- A `#[Server]` call, an upload or an action sends the props the method or
+  the render changed, every `#[Computed]` value and the `asgard.state` keys.
+- A plain render, a batch or a server screen sends only what the device now
+  holds wrongly: a prop that changed after hydration (in `checkClientCache()`
+  or a region method, say), and a computed value or `asgard.state` key the
+  device sent with a different value. Most renders change nothing, so their
+  delta is `{}`.
+
+A prop counts as changed when its `serialize()` form differs from what
+hydration left. A route string that hydration turned into an int is not a
+change.
+
+### Read-only state
+
+The device can send some of its state as read-only. Its `#[ServerReadOnly]`
+props and its own computed values go in the request's `read_only` list. The
+server can read them like any other state, but they never come back in a
+delta.
+
+If a method or a render changes one, that is a bug in the app. With
+`app.debug` on the answer is a 500 `read_only_changed` that names the prop
+and the method. Otherwise the key is dropped from the delta and logged as a
+warning, and the rest of the answer goes out as usual.
+
+A server `#[Computed]` value with a read-only name is left out when it
+matches what the device sent, and counts as a change when it does not. An
+`asgard.state` key never overwrites a read-only key of the same name.
 
 ### Redrawing other regions
 
@@ -463,6 +507,12 @@ checked as `Asgard::push()` checks them, and an unknown one throws.
 
 **Other phones.** Use `Asgard::push()` or `Asgard::to()`, as before.
 `refresh()` only reaches the phone that sent the request.
+
+The device can also choose what a `#[Server]` call or an upload redraws,
+with `#[Server(render: true)]`, `render: 'stats'` or `render: ['stats',
+'chart']` on its side. It sends those names in the request's `regions`. The
+server renders them after the method, together with anything `refresh()`
+asked for, each region once.
 
 A name that is a region of this component always means that region. An
 answer renders at most 16 inline regions and carries at most 16 hints.
@@ -977,7 +1027,10 @@ Fragments of 1 KiB or more are gzipped before they are encrypted. A response
 says which with the signed `Asgard-Content-Coding: gzip` (or `identity`)
 header, and `Content-Encoding` stays `aes128gcm`, because Cloudflare rewrites
 a stacked `gzip, aes128gcm` and that breaks the signature. Errors are never
-compressed.
+compressed. Neither is an answer whose `delta` holds anything, since a delta
+can mix the server's values with text the device chose. So a render or an
+action is gzipped only when its delta is `{}`, and a call or an upload never
+is.
 Turn it off for a region whose fragment mixes a secret with text someone else
 can choose, because the compressed length can leak the secret (the BREACH
 attack):
@@ -1016,8 +1069,13 @@ QUERY, so use the POST form there.
 **Request body:**
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","regions":["greeting"],"state":{"name":"Simon","platform":"ios"}}
+{"protocol":1,"component":"app.native.screens.home","regions":["greeting"],"state":{"name":"Simon","platform":"ios"},
+ "read_only":["platform"]}
 ```
+
+`read_only` is optional. It lists the keys of `state` the server may read
+but never change. Each one must be a key of `state`, named once. Anything
+else is a 422. Call, upload and stream subscriptions take it too.
 
 `regions` is a list of distinct region names, even for one region. A body
 with `region` instead is a 422. A device that wants several regions of one
@@ -1070,12 +1128,14 @@ server to know about itself in `state`. One that still sends `platform` has it
 ignored, as any unknown member is. A malformed request gets 422
 `{"error":"invalid_request","message":"…"}`.
 
-**Response 200:** a `fragments` map with one part per region, keyed by
-region, in the order asked. There is nothing else at the top level but
-`protocol`, and `refresh` on an action answer.
+**Response 200:** a `delta` and a `fragments` map with one part per region,
+keyed by region, in the order asked. There is nothing else at the top level
+but `protocol`, and `refresh` on an action answer. `delta` is always an
+object, `{}` when there is nothing to send. It is described under "State in
+every answer" above.
 
 ```json
-{"protocol":1,"fragments":{
+{"protocol":1,"delta":{},"fragments":{
  "greeting":{"version":"…","made_at":1763150000123,"max_age":60,
   "fragment":{"type":"column","class":"p-4 gap-2","children":[{"type":"text","props":{"text":"Hello"}}]}}}}
 ```
@@ -1092,7 +1152,7 @@ rendered and its part is only `{"cached":true}`. A cached part has no
 ones it came with:
 
 ```json
-{"protocol":1,"fragments":{"greeting":{"version":"…","made_at":1763150000123,"fragment":{…}},"stats":{"cached":true}}}
+{"protocol":1,"delta":{},"fragments":{"greeting":{"version":"…","made_at":1763150000123,"fragment":{…}},"stats":{"cached":true}}}
 ```
 
 A copy inside the grace window is rendered and sent as a normal part. A
@@ -1104,19 +1164,21 @@ right after `asgard-protocol`, whenever it is present. A response that
 carries the header without covering it does not verify. Calls and uploads
 can carry the header too, even with no fragments.
 
-An action answer always has a part for the action's own region. When the
-method called `refresh()`, the other regions it rendered are more parts, and
-`refresh` carries the hints. `refresh` is left out when empty:
+An action answer always has a part for the action's own region, and a delta
+shaped like a call's. When the method called `refresh()`, the other regions
+it rendered are more parts, and `refresh` carries the hints. `refresh` is
+left out when empty:
 
 ```json
-{"protocol":1,"fragments":{
+{"protocol":1,"delta":{"count":3},"fragments":{
  "stats":{"version":"…","made_at":1763150000123,"fragment":{…}},
  "greeting":{"version":"q3V0bG9yZW1pcHN1","made_at":1763150000123,"fragment":{…}}},
  "refresh":[{"component":"app.native.screens.inbox","region":"unread"}]}
 ```
 
-An answer is gzipped only when every region in it allows it. An answer that
-includes a `compress: false` region is sent as it is.
+An answer is gzipped only when its delta is `{}` and every region in it
+allows it. An answer that includes a `compress: false` region, or carries
+anything in its delta, is sent as it is.
 
 `fragment` is one node or a list of nodes:
 `{type, key?, props?, class?, on_press?, on_long_press?, on_double_tap?, on_change?, on_submit?, children?}`.
@@ -1143,6 +1205,8 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, `region` instead of `regions`, an action that does not name exactly one region, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 422 | `{"error":"too_many_regions","message":…}` | `regions` names more than `asgard.max_regions`. Nothing is rendered. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment, including one with a type the client did not list. The message is included in debug. |
+| 500 | `{"error":"invalid_delta"}` | The action or the render left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |
+| 500 | `{"error":"read_only_changed"}` | The action or the render changed a key the request listed in `read_only`. Only with `app.debug` on, and the message names the key and the method. Otherwise the key is dropped from the delta and logged. |
 
 ### Call
 
@@ -1150,13 +1214,20 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 action, its signature must carry a nonce.
 
 **Request body:** the component, the `#[Server]` method, its args by position,
-and the device's state after its own body ran, plus an optional `cache` as on
-render. Nothing else is allowed. A
+and the device's state after its own body ran, plus optional `read_only`,
+`regions` and `cache` as on render. Nothing else is allowed. A
 `platform` member from an older client is refused like any unknown member.
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{"rolling":true,"platform":"ios"}}
+{"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{"rolling":true,"platform":"ios"},
+ "read_only":["platform"],"regions":["stats"]}
 ```
+
+`regions` names the regions to draw again once the method has run. It is a
+list of distinct region names of this component, checked as render checks
+them, and may be empty. A name that is not a region of the component is a
+422 `invalid_request`, and more than `asgard.max_regions` is a 422
+`too_many_regions`. Either way the method does not run.
 
 **Response 200:** the props the method changed, then every `#[Computed]`
 value, then the keys from `asgard.state`. `delta` is always an object, `{}`
@@ -1167,10 +1238,19 @@ values with text the device chose.
 {"protocol":1,"delta":{"result":4}}
 ```
 
-A method that called `refresh()` adds `fragments` and `refresh`, shaped as
-on an action's answer. A region the request's `cache` holds fresh is
-`{"cached":true}` there. The regions are rendered after the delta is worked
-out. The answer is still never gzipped.
+A request with `regions`, or a method that called `refresh()`, adds
+`fragments`, shaped as on an action's answer: the regions the request named,
+then the ones `refresh()` added, each once. Hints for other components go in
+`refresh`. A region the request's `cache` holds fresh is `{"cached":true}`
+there. The regions are rendered before the delta is worked out, so a prop a
+region changes is in it too. The answer is still never gzipped.
+
+```json
+{"protocol":1,"delta":{"result":4},"fragments":{"stats":{"version":"…","made_at":1763150000123,"fragment":{…}}}}
+```
+
+A key in `read_only` is never in the delta. One the method changed is a 500
+`read_only_changed` with `app.debug` on, and dropped and logged otherwise.
 
 **Errors:** as render, except:
 
@@ -1179,8 +1259,10 @@ out. The answer is still never gzipped.
 | 403 | `{"error":"nonce_required",…}` | The signature has no nonce. Plain and unsigned, sent before the body is decrypted. |
 | 404 | `{"error":"unknown_component"}` | The address is not registered. |
 | 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[ServerAction]` method on the component, or the arg count doesn't fit it. |
-| 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
-| 500 | `{"error":"invalid_delta"}` | The method left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |
+| 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, a bad `read_only`, a name in `regions` that is not a region of the component, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
+| 422 | `{"error":"too_many_regions","message":…}` | `regions` names more than `asgard.max_regions`. The method does not run. |
+| 500 | `{"error":"invalid_delta"}` | The method or a region it drew left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |
+| 500 | `{"error":"read_only_changed"}` | The method changed a key the request listed in `read_only`. Only with `app.debug` on. |
 
 ### Upload
 
@@ -1200,7 +1282,7 @@ the rest             the file, exactly `size` bytes
 {"protocol":1,"component":"app.native.screens.home","method":"savePhoto","args":[],"state":{"name":"Simon","platform":"ios"},"filename":"IMG_0001.jpg","mime":"image/jpeg","size":2483113}
 ```
 
-The header may carry `cache` as a call can. `filename` and `mime` are what
+The header may carry `read_only`, `regions` and `cache` as a call can. `filename` and `mime` are what
 the device says, and only informational.
 A frame was picked over JSON with the file in base64, which would make every
 upload a third bigger and need it decoded in memory as well.
@@ -1234,6 +1316,8 @@ component instance on screen. No `action`.
   `A-Z a-z 0-9 _ -`, unique within the request. Events name it.
 - `regions` is 1 to 16 distinct region names, checked as render checks one.
 - `state` is checked and hydrated as render's is, separately per subscription.
+- `read_only` is optional and checked as render checks it. A stream sends no
+  delta, so it changes nothing else.
 - `versions` is optional. It maps a region to the `version` token the device
   holds for it, from a render answer or an earlier event.
 - Other members, at the top level or in a subscription, are ignored. Only

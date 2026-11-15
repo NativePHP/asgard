@@ -146,30 +146,6 @@ trait RendersRegions
     }
 
     /**
-     * What refresh() asked for inside the method that just ran: the other
-     * regions of this component rendered now, and hints for other
-     * components.
-     *
-     * @param  list<string>  $channels
-     * @return array{fragments: array<string, array<string, mixed>>, refresh: list<array{component: string, region?: string}>}|JsonResponse
-     */
-    protected function refreshed(ServerComponent $component, ComponentMetadata $metadata, string $address, array $channels): array|JsonResponse
-    {
-        $asked = $component->asgardRefreshes();
-        $regions = $asked['regions'];
-
-        $fragments = $regions === []
-            ? []
-            : $this->renderParts($component, $metadata, $address, $regions, $channels);
-
-        if ($fragments instanceof JsonResponse) {
-            return $fragments;
-        }
-
-        return ['fragments' => $fragments, 'refresh' => $asked['hints']];
-    }
-
-    /**
      * Each region's version token (Asgard protocol §8.1), from one read of the
      * push counters. The push store being down only costs the tokens.
      *

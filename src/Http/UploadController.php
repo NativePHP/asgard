@@ -11,6 +11,7 @@ use Native\Asgard\Attributes\Upload;
 use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Exceptions\TooManyRegions;
 use Native\Asgard\Http\Concerns\AnswersWithDelta;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Http\Concerns\RendersRegions;
@@ -39,8 +40,10 @@ use RuntimeException;
  * filename and mime type are never trusted: the type is sniffed from the
  * bytes and checked against the attribute's `mimes`, and the filename is
  * only kept, cleaned, as getClientOriginalName() for display. The method
- * gets an UploadedFile as its first argument, then the args. The answer is
- * a call's: the delta, plus any regions and hints refresh() asked for. The
+ * gets an UploadedFile as its first argument, then the args. The header may
+ * carry a call's `read_only` and `regions` too. The answer is a call's: the
+ * delta, plus the regions it named and any regions and hints refresh()
+ * asked for. The
  * temp file is deleted afterwards, so a method that wants to keep the file
  * must store it.
  *
@@ -59,7 +62,7 @@ class UploadController
     public const HEADER_MAX = 1024 * 1024;
 
     /** Any other member is refused (§5.3). */
-    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'cache', 'filename', 'mime', 'size'];
+    private const FIELDS = ['protocol', 'component', 'method', 'args', 'state', 'read_only', 'regions', 'cache', 'filename', 'mime', 'size'];
 
     public function __construct(
         protected ComponentRegistry $registry,
@@ -78,6 +81,8 @@ class UploadController
     {
         try {
             [$payload, $offset] = $this->frame($request);
+        } catch (TooManyRegions $e) {
+            return $this->error(422, 'too_many_regions', $e->getMessage());
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
@@ -93,6 +98,10 @@ class UploadController
 
         if ($upload === null || ! ActionInvoker::accepts($upload['spec'], count($payload['args']))) {
             return response()->json(['error' => 'unknown_method'], 404);
+        }
+
+        if ($unknown = $this->unknownRegion($metadata, $payload['regions'])) {
+            return $unknown;
         }
 
         $max = min(self::maxSize(), $upload['maxSize'] ?? PHP_INT_MAX);
@@ -118,16 +127,17 @@ class UploadController
 
             try {
                 Hydrator::hydrate($component, $payload['state']);
+                $before = $this->fingerprints($component);
 
                 $channels = $this->channelsOf($component);
-                $before = $this->fingerprints($component);
+                $tokens = $payload['regions'] === [] ? [] : $this->tokens($payload['component'], $payload['regions'], $channels);
 
                 ActionInvoker::invoke($component, $payload['method'], $upload['spec'], $payload['args'], 'args', [$file]);
             } catch (InvalidRequest $e) {
                 return $this->error(422, 'invalid_request', $e->getMessage());
             }
 
-            return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before);
+            return $this->answer($component, $metadata, $payload['component'], $payload['method'], $channels, $before, $payload['state'], $payload['read_only'], $payload['regions'], $tokens);
         } finally {
             // The method may have moved it already.
             if (is_file($path)) {
@@ -139,7 +149,7 @@ class UploadController
     /**
      * The header, checked, and where the file's bytes start in the body.
      *
-     * @return array{0: array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, cache: array<string, array{made_at: int, ttl: int}>, filename: string, size: int}, 1: int}
+     * @return array{0: array{component: string, method: string, args: list<mixed>, state: array<string, mixed>, read_only: list<string>, regions: list<string>, cache: array<string, array{made_at: int, ttl: int}>, filename: string, size: int}, 1: int}
      */
     protected function frame(Request $request): array
     {
@@ -201,11 +211,16 @@ class UploadController
             throw new InvalidRequest('mime must be a string.');
         }
 
+        $regions = $this->regionList($head['regions'] ?? [], true);
+        $state = $this->state($head['state'] ?? null);
+
         return [[
             'component' => $this->component($head['component'] ?? null),
             'method' => $head['method'],
             'args' => $head['args'],
-            'state' => $this->state($head['state'] ?? null),
+            'state' => $state,
+            'read_only' => $this->readOnly($head['read_only'] ?? null, $state),
+            'regions' => $regions,
             'cache' => $this->cache($head['cache'] ?? null),
             'filename' => $this->filename($head['filename'] ?? null),
             'size' => $size,
