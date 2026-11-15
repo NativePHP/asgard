@@ -3,8 +3,8 @@
 namespace Native\Asgard\Tests\Fixtures;
 
 use Illuminate\Contracts\View\View;
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Region;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
 
@@ -47,7 +47,7 @@ class BladeScreen extends ServerComponent
         return view('regions.chrome');
     }
 
-    #[Action]
+    #[ServerAction]
     public function bump(int $by = 1): void
     {
         $this->count += $by;

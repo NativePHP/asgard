@@ -18,8 +18,9 @@ use Native\Asgard\Support\Hydrator;
 use Native\Asgard\Support\PushVersions;
 
 /**
- * Runs the server half of a `#[Server]` method and answers with the props
- * it changed.
+ * Runs the server half of a device's `#[Server]` method and answers with
+ * the props it changed. The method on this side must be a `#[ServerAction]`,
+ * the same allowlist a fragment's tap or press goes through.
  *
  *     → {"protocol":1,"component":"app.native.screens.home","method":"roll","args":[],"state":{…}}
  *     ← {"protocol":1,"delta":{"roll":4}}
@@ -73,7 +74,7 @@ class CallController
         }
 
         $metadata = ComponentMetadata::for($class);
-        $spec = $metadata->servers[$payload['method']] ?? null;
+        $spec = $metadata->serverActions[$payload['method']] ?? null;
 
         if ($spec === null || ! ActionInvoker::accepts($spec, count($payload['args']))) {
             return response()->json(['error' => 'unknown_method'], 404);

@@ -83,8 +83,8 @@ abstract class ServerComponent
     }
 
     /**
-     * Ask for other regions to be drawn again, from inside an #[Action],
-     * #[Server] or #[Upload] method.
+     * Ask for other regions to be drawn again, from inside a #[ServerAction]
+     * or #[Upload] method.
      *
      * Regions of this component are rendered here, after the method runs,
      * with the state it left and the request's user, and travel in the same
@@ -183,7 +183,7 @@ abstract class ServerComponent
     /**
      * Render every region in this answer, even ones the client holds a
      * fresh copy of, and tell the client to replace its copies. Covers
-     * the current answer only. Call it from an #[Action], #[Server] or
+     * the current answer only. Call it from a #[ServerAction] or
      * #[Upload] method that changes what a region shows, from
      * checkClientCache(), or from a region method before it returns.
      */

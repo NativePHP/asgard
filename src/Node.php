@@ -109,7 +109,7 @@ class Node implements JsonSerializable
         return $this;
     }
 
-    /** Runs the #[Action] method on the server, then re-renders the region. */
+    /** Runs the #[ServerAction] method on the server, then re-renders the region. */
     public function onPress(string $method, mixed ...$args): static
     {
         return $this->on('on_press', $method, $args, 'server');

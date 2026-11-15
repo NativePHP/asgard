@@ -3,9 +3,8 @@
 namespace Native\Asgard\Tests\Fixtures;
 
 use Illuminate\Http\UploadedFile;
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Attributes\Upload;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
@@ -63,16 +62,10 @@ class UploadScreen extends ServerComponent
         static::record('takesTwo', $file);
     }
 
-    #[Server]
-    public function serverOnly(): void
+    #[ServerAction]
+    public function serverAction(): void
     {
-        static::$calls[] = ['method' => 'serverOnly'];
-    }
-
-    #[Action]
-    public function actionOnly(): void
-    {
-        static::$calls[] = ['method' => 'actionOnly'];
+        static::$calls[] = ['method' => 'serverAction'];
     }
 
     public function unmarked(UploadedFile $file): void

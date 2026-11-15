@@ -2,8 +2,8 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Region;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 
 class ChildScreen extends ParentScreen
@@ -18,7 +18,7 @@ class ChildScreen extends ParentScreen
         return Node::text("Count: {$this->count}");
     }
 
-    #[Action]
+    #[ServerAction]
     public function bump(): void
     {
         static::$calls[] = 'bump';

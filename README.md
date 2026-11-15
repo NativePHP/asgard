@@ -27,9 +27,9 @@ One key per app per environment.
 ## Writing a server component
 
 ```php
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
 
@@ -53,7 +53,7 @@ class HomeScreen extends ServerComponent
         )->class('p-4 gap-2');
     }
 
-    #[Action]
+    #[ServerAction]
     public function wave(int $times): void
     {
         $this->waves += $times;
@@ -166,7 +166,7 @@ the same checks, so chrome like `<top-bar>` is still refused.
   name it was written with.
 - `<text>` and `<button>` take their slot as `text` and `label`, with
   whitespace collapsed as on the device. Nested `<text>` runs work.
-- `@press="bump"` is a server `#[Action]`. `@press.client="celebrate"` runs a
+- `@press="bump"` is a server `#[ServerAction]`. `@press.client="celebrate"` runs a
   client action. The same goes for `@longPress`, `@doubleTap`, `@change` and
   `@submit`, and the `@tap`/`@longTap` spellings. Other events throw.
 - Call args are literals (`'a'`, `2`, `-1.5`, `true`, `null`, `[...]`) or a
@@ -241,7 +241,7 @@ the client lists.
 `Node::button('Go')`, `Node::spacer()`, `Node::divider()`.
 
 Each callback takes a method name and its args: `->onPress('shuffle', 3, 'x')`.
-That targets an `#[Action]` method on the server. The `…Client` twin of each
+That targets a `#[ServerAction]` method on the server. The `…Client` twin of each
 (`->onPressClient('celebrate')`) targets an action the device runs itself.
 Names must match `^[A-Za-z_][A-Za-z0-9_]{0,99}$`. Args must be null, bools,
 numbers, strings, or lists and objects of those, at most 16 args nested at
@@ -255,7 +255,7 @@ requested region and returns it. Changes the action makes to props only live
 for that request. They are not sent back as state.
 
 An action method must be public, non-static, declared on the registered class
-itself (or a trait it uses), and carry `#[Action]`. It cannot also be a
+itself (or a trait it uses), and carry `#[ServerAction]`. It cannot also be a
 `#[Region]`, and `__*` methods never count. Its params may only be typed
 `string`, `int`, `float`, `bool`, `array`, `mixed`, `true`, `false`, nullable
 versions of those, or left untyped. A class or interface type, `callable`,
@@ -266,14 +266,15 @@ injection and no model or enum binding.
 ### Server methods
 
 A `#[Server]` method is a method call from the device that runs here. The
-device's component and the server component each have a method of the same
-name, both marked `#[Server]`. The device body runs first (a loading flag, an
-optimistic update), then the call comes here with the device's state:
+device's component has a method marked `#[Server]`, and the server component
+has a method of the same name marked `#[ServerAction]`. The device body runs
+first (a loading flag, an optimistic update), then the call comes here with
+the device's state:
 
 ```php
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 
-#[Server]
+#[ServerAction]
 public function roll(): void
 {
     $this->result = random_int(1, 6);
@@ -287,12 +288,13 @@ moved since it sent the call. A `#[Locked]` prop the method changes is sent
 back too. A changed prop must be null, a bool, a finite number, a UTF-8
 string or an array of those, or the call is a 500.
 
-The method follows the same rules as an action: public, non-static, declared
-on the registered class itself (or a trait it uses), not a `#[Region]`, and
-params limited to plain JSON types. `#[Action]` and `#[Server]` are separate
-allowlists, so an action cannot be called as a server method or the other
-way round. Nothing is rendered unless the method asks for it with
-`refresh()`, below.
+`#[ServerAction]` is the one allowlist for both taps and device calls. Any
+method marked with it can be reached from a fragment's callback and from a
+device's `#[Server]` method, and a public method without it can be reached
+from neither. The rules are the ones above: public, non-static, declared on
+the registered class itself (or a trait it uses), not a `#[Region]`, and
+params limited to plain JSON types. Nothing is rendered unless the method
+asks for it with `refresh()`, below.
 
 ### Computed values
 
@@ -315,10 +317,10 @@ public function total(): int
 
 The device's component keeps it only if it has a public prop called `total`.
 A computed value is read-only here. State the device sends under its name is
-ignored, like any key without a prop, and it can never be run as an action,
-a server method, an upload or a region. It must be public and non-static
-with no required parameters, it may not carry `#[Action]`, `#[Server]`,
-`#[Upload]` or `#[Region]`, and it may not share its name with a public prop.
+ignored, like any key without a prop, and it can never be run as a server
+action, an upload or a region. It must be public and non-static with no
+required parameters, it may not carry `#[ServerAction]`, `#[Upload]` or
+`#[Region]`, and it may not share its name with a public prop.
 Breaking any of those throws when the component is first used. A parent
 class's `#[Computed]` methods count too.
 
@@ -345,10 +347,10 @@ public function savePhoto(UploadedFile $file, string $caption = ''): void
 ```
 
 The first parameter must take an `UploadedFile`. Any others are args from the
-device, checked as an action's are. Everything else works as a `#[Server]`
-method does: the component is hydrated from the device's state, the answer is
+device, checked as an action's are. Everything else works as a device call
+does: the component is hydrated from the device's state, the answer is
 the props the method changed, and `refresh()` works the same way.
-`#[Upload]` is its own allowlist, apart from `#[Action]` and `#[Server]`.
+`#[Upload]` is its own allowlist, apart from `#[ServerAction]`.
 
 - `maxSize` is bytes, or a size like `'512K'`, `'10M'` or `'1G'`. It can lower
   `asgard.uploads.max_size` (20M by default) but never raise it. Too big is a
@@ -424,13 +426,13 @@ region render or a pushed fragment. Only the headers do. That is a known gap.
 
 ### Redrawing other regions
 
-Inside an `#[Action]`, `#[Server]` or `#[Upload]` method, `$this->refresh()` says which
+Inside a `#[ServerAction]` or `#[Upload]` method, `$this->refresh()` says which
 other regions need drawing again. There are three cases.
 
 **Same component, inline.** Name one or more regions of this component:
 
 ```php
-#[Action]
+#[ServerAction]
 public function bump(): void
 {
     Cache::increment('taps');
@@ -502,11 +504,11 @@ any other, so its copy is renewed before it runs out. The server only ever
 answers `{"cached": true}` for a region the client declared in that request.
 
 **A fresh copy wins over every other reason to redraw**: an action on the
-region, `refresh()`, a fetch after a push. So once caching is on, an action
-or `#[Server]` method that changes what a region shows must say so:
+region, `refresh()`, a fetch after a push. So once caching is on, a
+`#[ServerAction]` that changes what a region shows must say so:
 
 ```php
-#[Action]
+#[ServerAction]
 public function like(): void
 {
     $this->post->increment('likes');
@@ -518,8 +520,8 @@ public function like(): void
 `forceCacheInvalidation()` covers the current answer only. Every region in it
 is rendered and sent, and the answer carries the signed header
 `Asgard-Cache: invalidate`, which tells the client to replace its copies. It
-can be called anywhere in the request: an action, a `#[Server]` or
-`#[Upload]` method, a region method before it returns, or the hook below.
+can be called anywhere in the request: a `#[ServerAction]` or `#[Upload]`
+method, a region method before it returns, or the hook below.
 
 `checkClientCache()` runs for each region the client holds a fresh copy of,
 before the server skips it. Compare the copy with your data there:
@@ -565,8 +567,8 @@ A region lives inside a screen the app wrote. A server screen is a whole
 screen the server owns, at a route of its own:
 
 ```php
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Screen;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Chrome\Chrome;
 use Native\Asgard\Chrome\NavAction;
 use Native\Asgard\Chrome\NavBar;
@@ -596,7 +598,7 @@ class PromoScreen extends ServerScreen
                 ->action(NavAction::make('like')->icon('heart')->onPress('like')));
     }
 
-    #[Action]
+    #[ServerAction]
     public function like(): void
     {
         $this->likes++;
@@ -619,7 +621,7 @@ shape: a server screen can add a route, never replace one.
   strings are converted to the property's type.
 - The body travels as region `screen`. `render()` returns what a region
   method can: a `Node`, a list, node arrays, or a Blade view.
-- `#[Action]` methods and `Asgard::push()` work as on any component.
+- `#[ServerAction]` methods and `Asgard::push()` work as on any component.
   `#[Region]` methods do not: a screen has one body.
 
 ### Chrome
@@ -1065,7 +1067,7 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | 403 | `{"error":"forbidden",…}` | Digest, signature or decryption failed, the signature expired, or a nonce was replayed. Plain, unsigned. Do not retry. |
 | 403 | `{"error":"nonce_required"}` | An action whose signature has no nonce. Sealed, since only the decrypted body says it is an action. |
 | 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare (any one of `regions`). Same body for both. |
-| 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[Action]` on the component, or the arg count doesn't fit it. |
+| 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[ServerAction]` on the component, or the arg count doesn't fit it. |
 | 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`, or a method other than QUERY and POST. Plain, unsigned. |
 | 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, `region` instead of `regions`, an action that does not name exactly one region, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
@@ -1106,7 +1108,7 @@ out. The answer is still never gzipped.
 | --- | --- | --- |
 | 403 | `{"error":"nonce_required",…}` | The signature has no nonce. Plain and unsigned, sent before the body is decrypted. |
 | 404 | `{"error":"unknown_component"}` | The address is not registered. |
-| 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[Server]` method on the component, or the arg count doesn't fit it. |
+| 404 | `{"error":"unknown_method"}` | `method` is not a callable `#[ServerAction]` method on the component, or the arg count doesn't fit it. |
 | 422 | `{"error":"invalid_request","message":…}` | Bad body, an unknown field, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 500 | `{"error":"invalid_delta"}` | The method left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |
 
@@ -1241,15 +1243,15 @@ verifies on the stream it was sent on.
   must be scalars, null or arrays of those; no coercion and no objects. A
   mismatch is 422. Unknown keys are ignored, and logged when `app.debug` is on.
 - An action is only reachable if a public, non-static, non-magic method
-  declared on the component class carries `#[Action]` and not `#[Region]`.
+  declared on the component class carries `#[ServerAction]` and not `#[Region]`.
   Methods on `ServerComponent` and on parent classes never count. Params are
   limited to plain JSON types, and each arg is type checked strictly before
   the call (no `"5"` into `int`). The wire `call` is only ever a key into that
   map, and region resolution happens first, so an action never runs for a
   region that doesn't exist.
-- A call is only reachable for a method that passes the same checks as an
-  action but carries `#[Server]`. The wire `method` is only ever a key into
-  that map. A call needs a nonce, and a nonce is refused the second time.
+- A call is only reachable for a method in that same `#[ServerAction]` map.
+  The wire `method` is only ever a key into it. A call needs a nonce, and a
+  nonce is refused the second time.
 - An upload is only reachable for a method that carries `#[Upload]`, passes
   the same checks, and whose first param takes an `UploadedFile`. It needs a
   nonce too. The file's type is sniffed from its bytes, and its device

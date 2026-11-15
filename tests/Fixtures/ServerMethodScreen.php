@@ -2,10 +2,9 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
 
@@ -32,7 +31,7 @@ class ServerMethodScreen extends ServerComponent
 
     public mixed $anything = null;
 
-    #[Server]
+    #[ServerAction]
     public function refreshChart(string $range): void
     {
         static::$calls[] = 'refreshChart';
@@ -42,42 +41,42 @@ class ServerMethodScreen extends ServerComponent
         $this->loading = $this->loading;
     }
 
-    #[Server]
+    #[ServerAction]
     public function rollDie(): void
     {
         static::$calls[] = 'rollDie';
         $this->roll = 4;
     }
 
-    #[Server]
+    #[ServerAction]
     public function upgrade(): void
     {
         static::$calls[] = 'upgrade';
         $this->plan = 'pro';
     }
 
-    #[Server]
+    #[ServerAction]
     public function fill(): void
     {
         static::$calls[] = 'fill';
         $this->filled = 3;
     }
 
-    #[Server]
+    #[ServerAction]
     public function sameAgain(): void
     {
         static::$calls[] = 'sameAgain';
         $this->chart = array_values($this->chart);
     }
 
-    #[Server]
+    #[ServerAction]
     public function leaveAnObject(): void
     {
         static::$calls[] = 'leaveAnObject';
         $this->anything = new \stdClass;
     }
 
-    #[Server]
+    #[ServerAction]
     public function leaveNan(): void
     {
         static::$calls[] = 'leaveNan';
@@ -85,7 +84,7 @@ class ServerMethodScreen extends ServerComponent
     }
 
     /** Rolls, then asks for this component's chart and a hint for another. */
-    #[Server]
+    #[ServerAction]
     public function rollAndRedraw(string ...$regions): void
     {
         static::$calls[] = 'rollAndRedraw';
@@ -93,7 +92,7 @@ class ServerMethodScreen extends ServerComponent
         $this->refresh(...$regions);
     }
 
-    #[Server]
+    #[ServerAction]
     public function hintOther(string $target, string ...$region): void
     {
         static::$calls[] = 'hintOther';
@@ -106,17 +105,11 @@ class ServerMethodScreen extends ServerComponent
         return Node::text('Rolled '.($this->roll ?? 'nothing').' on '.$this->platform.' in '.$this->region());
     }
 
-    #[Server]
+    #[ServerAction]
     public function needsTwo(int $a, int $b): void
     {
         static::$calls[] = 'needsTwo';
         $this->roll = $a + $b;
-    }
-
-    #[Action]
-    public function actionOnly(): void
-    {
-        static::$calls[] = 'actionOnly';
     }
 
     public function unmarked(): void
@@ -124,7 +117,7 @@ class ServerMethodScreen extends ServerComponent
         static::$calls[] = 'unmarked';
     }
 
-    #[Server]
+    #[ServerAction]
     #[Region('chart')]
     public function chartRegion(): Node
     {
@@ -133,25 +126,25 @@ class ServerMethodScreen extends ServerComponent
         return Node::text('chart');
     }
 
-    #[Server]
+    #[ServerAction]
     public static function staticServer(): void
     {
         static::$calls[] = 'staticServer';
     }
 
-    #[Server]
+    #[ServerAction]
     protected function protectedServer(): void
     {
         static::$calls[] = 'protectedServer';
     }
 
-    #[Server]
+    #[ServerAction]
     private function privateServer(): void
     {
         static::$calls[] = 'privateServer';
     }
 
-    #[Server]
+    #[ServerAction]
     public function withObject(object $thing): void
     {
         static::$calls[] = 'withObject';

@@ -2,9 +2,8 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
 
@@ -34,13 +33,13 @@ class ChannelScreen extends ServerComponent
         return Node::text("Promo {$this->promo} for ".(auth()->id() ?? 'guest'));
     }
 
-    #[Action]
+    #[ServerAction]
     public function poke(): void
     {
         $this->refresh('title');
     }
 
-    #[Server]
+    #[ServerAction]
     public function touch(): void
     {
         $this->refresh('title', 'viewer');

@@ -30,7 +30,7 @@ use Native\Asgard\Chrome\Chrome;
  * boolean strings are converted to match the property's type, because a
  * route parameter is always a string on the wire.
  *
- * #[Action] methods work as they do on any component, and so does
+ * #[ServerAction] methods work as they do on any component, and so does
  * Asgard::push(). #[Region] methods do not: a screen has exactly one body.
  */
 abstract class ServerScreen extends ServerComponent

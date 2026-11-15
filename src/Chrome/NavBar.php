@@ -93,7 +93,7 @@ class NavBar
 
     /**
      * A search field in the bar. With $onQuery, each (debounced) query runs
-     * that #[Action] on the server with the text appended to its args.
+     * that #[ServerAction] on the server with the text appended to its args.
      */
     public function searchBar(string $placeholder = '', ?string $onQuery = null, int $debounceMs = 300): static
     {

@@ -2,7 +2,7 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
+use Native\Asgard\Attributes\ServerAction;
 
 trait HelperTrait
 {
@@ -11,7 +11,7 @@ trait HelperTrait
         ChildScreen::$calls[] = 'fromTrait';
     }
 
-    #[Action]
+    #[ServerAction]
     public function markedInTrait(): void
     {
         ChildScreen::$calls[] = 'markedInTrait';

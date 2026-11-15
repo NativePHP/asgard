@@ -5,12 +5,11 @@ namespace Native\Asgard\Support;
 use Illuminate\Http\UploadedFile;
 use InvalidArgumentException;
 use LogicException;
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Computed;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Attributes\Screen;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Attributes\Upload;
 use Native\Asgard\ServerComponent;
 use Native\Asgard\ServerScreen;
@@ -35,14 +34,13 @@ use ReflectionUnionType;
  * properties: property name => allowed builtin types, for public,
  *             non-static, non-readonly, typed, unlocked properties declared
  *             on the class itself.
- * actions:    method name => parameter spec, from #[Action] on public,
- *             non-static, non-magic methods declared on the class itself
- *             that are not also regions. Methods whose parameters could
- *             take anything other than plain JSON values (class types,
- *             callable, by-reference...) are left out, so they can never
- *             be called from the wire.
- * servers:    method name => parameter spec, from #[Server] under the same
- *             rules as actions. A call request can only run these.
+ * serverActions: method name => parameter spec, from #[ServerAction] on
+ *             public, non-static, non-magic methods declared on the class
+ *             itself that are not also regions. Methods whose parameters
+ *             could take anything other than plain JSON values (class
+ *             types, callable, by-reference...) are left out, so they can
+ *             never be called from the wire. A render request's action and
+ *             a call request can only run these.
  * uploads:    method name => upload spec, from #[Upload] under the same
  *             rules, except that the first parameter must take an
  *             UploadedFile. The spec covers the parameters after it, with
@@ -50,9 +48,9 @@ use ReflectionUnionType;
  *             upload request can only run these.
  * computed:   names of the #[Computed] methods: public, non-static,
  *             non-abstract, non-magic, with no required parameters. A
- *             parent's count too, since the wire never picks which runs. Their values go in every delta. Such
- *             a method is never an action, server method, upload or
- *             region, and a public prop of the same name is refused, as is
+ *             parent's count too, since the wire never picks which runs.
+ *             Their values go in every delta. Such a method is never a
+ *             server action, upload or region, and a public prop of the same name is refused, as is
  *             a #[Computed] that breaks any of these rules.
  */
 final class ComponentMetadata
@@ -65,8 +63,7 @@ final class ComponentMetadata
      * @param  list<string>  $uncompressed
      * @param  list<string>  $shared
      * @param  array<string, array{types: list<string>, nullable: bool}>  $properties
-     * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $actions
-     * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $servers
+     * @param  array<string, array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}>  $serverActions
      * @param  array<string, array{spec: array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}, maxSize: int|null, mimes: list<string>}>  $uploads
      * @param  list<string>  $computed
      * @param  array<string, int>  $maxAges
@@ -74,10 +71,9 @@ final class ComponentMetadata
     private function __construct(
         public readonly array $regions,
         public readonly array $properties,
-        public readonly array $actions = [],
+        public readonly array $serverActions = [],
         public readonly array $uncompressed = [],
         public readonly array $shared = [],
-        public readonly array $servers = [],
         public readonly array $uploads = [],
         public readonly array $computed = [],
         public readonly array $maxAges = [],
@@ -250,11 +246,10 @@ final class ComponentMetadata
         }
 
         $computed = self::computed($reflection);
-        $actions = self::callable($reflection, Action::class);
-        $servers = self::callable($reflection, Server::class);
+        $serverActions = self::callable($reflection, ServerAction::class);
         $uploads = self::uploadable($reflection);
 
-        return new self($regions, $properties, $actions, $uncompressed, $shared, $servers, $uploads, $computed, $maxAges);
+        return new self($regions, $properties, $serverActions, $uncompressed, $shared, $uploads, $computed, $maxAges);
     }
 
     private static function maxAgeOf(int $maxAge, string $where): int
@@ -267,7 +262,7 @@ final class ComponentMetadata
     }
 
     /** The wire-facing attributes a #[Computed] method may not also carry. */
-    private const NOT_WITH_COMPUTED = [Action::class, Server::class, Upload::class, Region::class];
+    private const NOT_WITH_COMPUTED = [ServerAction::class, Upload::class, Region::class];
 
     /**
      * The names of the #[Computed] methods. A mistake in one throws rather
@@ -373,7 +368,7 @@ final class ComponentMetadata
      * method name => upload spec, for the #[Upload] methods the wire may
      * run. The first parameter must take an UploadedFile: a plain class
      * type that UploadedFile is, not nullable, not variadic and not by
-     * reference. The rest must pass as an action's parameters do.
+     * reference. The rest must pass as a server action's parameters do.
      *
      * @return array<string, array{spec: array{params: list<array{types: list<string>|null, nullable: bool}>, required: int, variadic: array{types: list<string>|null, nullable: bool}|null, scalarVariadic: bool}, maxSize: int|null, mimes: list<string>}>
      */
@@ -418,7 +413,7 @@ final class ComponentMetadata
         return $uploads;
     }
 
-    /** Types an action parameter may declare. Everything else refuses the action. */
+    /** Types a server action parameter may declare. Everything else refuses the method. */
     private const ACTION_TYPES = ['string', 'int', 'float', 'bool', 'array', 'false', 'true', 'null', 'mixed'];
 
     private const SCALAR_TYPES = ['string', 'int', 'float', 'bool', 'false', 'true'];

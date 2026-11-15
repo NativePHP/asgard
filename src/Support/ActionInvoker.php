@@ -8,7 +8,7 @@ use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\ServerComponent;
 
 /**
- * Runs an #[Action] or #[Server] method with positional, already
+ * Runs a #[ServerAction] or #[Upload] method with positional, already
  * shape-checked args.
  * No container, no model or enum binding: each arg must already be the
  * plain JSON value the parameter declares. A mismatch is InvalidRequest.

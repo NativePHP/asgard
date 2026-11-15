@@ -2,7 +2,6 @@
 
 use Native\Asgard\Security\Base64Url;
 use Native\Asgard\Security\Wire;
-use Native\Asgard\Tests\Fixtures\HomeScreen;
 use Native\Asgard\Tests\Fixtures\ServerMethodScreen;
 
 function callBody(array $overrides = []): array
@@ -16,7 +15,7 @@ function callBody(array $overrides = []): array
     ], $overrides);
 }
 
-it('runs a #[Server] method and answers with only the props it changed', function () {
+it('runs a #[ServerAction] method and answers with only the props it changed', function () {
     $this->asgard(callBody(), 'QUERY', [], 'call')
         ->assertOk()
         ->assertExactJson([
@@ -84,7 +83,7 @@ it('hides why a delta was refused outside debug', function () {
         ->assertExactJson(['error' => 'invalid_delta']);
 });
 
-it('refuses methods that are not #[Server] methods with one 404', function (string $method, array $args = []) {
+it('refuses methods that are not #[ServerAction] methods with one 404', function (string $method, array $args = []) {
     $this->asgard(callBody(['method' => $method, 'args' => $args]), 'QUERY', [], 'call')
         ->assertNotFound()
         ->assertExactJson(['error' => 'unknown_method']);
@@ -92,7 +91,6 @@ it('refuses methods that are not #[Server] methods with one 404', function (stri
     expect(ServerMethodScreen::$calls)->toBe([]);
 })->with([
     'unmarked public method' => ['unmarked'],
-    'an #[Action] only' => ['actionOnly'],
     'a region that is also marked' => ['chartRegion'],
     'static' => ['staticServer'],
     'protected' => ['protectedServer'],
@@ -107,14 +105,6 @@ it('refuses methods that are not #[Server] methods with one 404', function (stri
     'too many args' => ['needsTwo', [1, 2, 3]],
     'args for a no-arg method' => ['rollDie', [1]],
 ]);
-
-it('refuses an #[Action] on another component as a server method', function () {
-    $this->asgard(callBody(['component' => 'app.native.screens.home', 'method' => 'shuffle', 'args' => []]), 'QUERY', [], 'call')
-        ->assertNotFound()
-        ->assertExactJson(['error' => 'unknown_method']);
-
-    expect(HomeScreen::$calls)->toBe([]);
-});
 
 it('refuses an unknown component', function () {
     $this->asgard(callBody(['component' => 'app.native.screens.nope']), 'QUERY', [], 'call')

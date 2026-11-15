@@ -13,7 +13,7 @@ trait HasSlots
     /** @var array<string, mixed>|null */
     protected ?array $onPress = null;
 
-    /** Runs the screen's #[Action] method on the server, then re-renders the screen. */
+    /** Runs the screen's #[ServerAction] method on the server, then re-renders the screen. */
     public function onPress(string $method, mixed ...$args): static
     {
         $this->onPress = Callback::call($method, $args);

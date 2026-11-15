@@ -5,7 +5,7 @@ namespace Native\Asgard\Tests\Fixtures;
 use Illuminate\Http\UploadedFile;
 use Native\Asgard\Attributes\Computed;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Attributes\Upload;
 use Native\Asgard\Exceptions\InvalidRequest;
 use Native\Asgard\Node;
@@ -44,14 +44,14 @@ class ComputedScreen extends ServerComponent
         return count($this->items) + $offset;
     }
 
-    #[Server]
+    #[ServerAction]
     public function add(int $item): void
     {
         $this->items[] = $item;
         $this->added++;
     }
 
-    #[Server]
+    #[ServerAction]
     public function nothing(): void {}
 
     #[Upload]

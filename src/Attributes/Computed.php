@@ -10,8 +10,8 @@ use Attribute;
  * and goes in the delta under the method's name, every time.
  *
  * It is read-only. A state key of the same name never writes anything,
- * and the method can never be run as an action, a server method, an
- * upload or a region. It takes no required parameters, and a public prop
+ * and the method can never be run as a server action, an upload or a
+ * region. It takes no required parameters, and a public prop
  * of the same name is refused.
  */
 #[Attribute(Attribute::TARGET_METHOD)]

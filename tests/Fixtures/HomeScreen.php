@@ -2,9 +2,9 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Locked;
 use Native\Asgard\Attributes\Region;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
 
@@ -66,7 +66,7 @@ class HomeScreen extends ServerComponent
         return Node::text('secret');
     }
 
-    #[Action]
+    #[ServerAction]
     public function shuffle(int $by = 1, string $suffix = ''): void
     {
         static::$calls[] = 'shuffle';
@@ -75,7 +75,7 @@ class HomeScreen extends ServerComponent
     }
 
     /** Bumps the count, then asks for these regions of this component. */
-    #[Action]
+    #[ServerAction]
     public function redraw(string ...$regions): void
     {
         static::$calls[] = 'redraw';
@@ -85,7 +85,7 @@ class HomeScreen extends ServerComponent
     }
 
     /** Names another component, or one of its regions, for the device to fetch. */
-    #[Action]
+    #[ServerAction]
     public function hint(string $target, string ...$region): void
     {
         static::$calls[] = 'hint';
@@ -93,7 +93,7 @@ class HomeScreen extends ServerComponent
     }
 
     /** Several refresh() calls in one action. */
-    #[Action]
+    #[ServerAction]
     public function hintMany(): void
     {
         $this->refresh(ChildScreen::class, 'count');
@@ -103,34 +103,34 @@ class HomeScreen extends ServerComponent
         $this->refresh('list', 'tags');
     }
 
-    #[Action]
+    #[ServerAction]
     public function promote(): void
     {
         static::$calls[] = 'promote';
         $this->role = 'admin';
     }
 
-    #[Action]
+    #[ServerAction]
     public function needsTwo(int $a, int $b): void
     {
         static::$calls[] = 'needsTwo';
         $this->count = $a + $b;
     }
 
-    #[Action]
+    #[ServerAction]
     public function sum(int ...$numbers): void
     {
         static::$calls[] = 'sum';
         $this->count = array_sum($numbers);
     }
 
-    #[Action]
+    #[ServerAction]
     public function lists(array ...$lists): void
     {
         static::$calls[] = 'lists';
     }
 
-    #[Action]
+    #[ServerAction]
     public function anything(mixed $value, $untyped = null, ?float $ratio = null, int|string|null $id = null): void
     {
         static::$calls[] = 'anything';
@@ -142,7 +142,7 @@ class HomeScreen extends ServerComponent
         static::$calls[] = 'unmarked';
     }
 
-    #[Action]
+    #[ServerAction]
     #[Region('both')]
     public function both(): Node
     {
@@ -151,31 +151,31 @@ class HomeScreen extends ServerComponent
         return Node::text('both');
     }
 
-    #[Action]
+    #[ServerAction]
     public static function staticAction(): void
     {
         static::$calls[] = 'staticAction';
     }
 
-    #[Action]
+    #[ServerAction]
     protected function protectedAction(): void
     {
         static::$calls[] = 'protectedAction';
     }
 
-    #[Action]
+    #[ServerAction]
     private function privateAction(): void
     {
         static::$calls[] = 'privateAction';
     }
 
-    #[Action]
+    #[ServerAction]
     public function __invoke(): void
     {
         static::$calls[] = '__invoke';
     }
 
-    #[Action]
+    #[ServerAction]
     public function __call(string $name, array $arguments): mixed
     {
         static::$calls[] = '__call';
@@ -183,43 +183,43 @@ class HomeScreen extends ServerComponent
         return null;
     }
 
-    #[Action]
+    #[ServerAction]
     public function withModel(HomeScreen $other): void
     {
         static::$calls[] = 'withModel';
     }
 
-    #[Action]
+    #[ServerAction]
     public function withInterface(\Countable $things): void
     {
         static::$calls[] = 'withInterface';
     }
 
-    #[Action]
+    #[ServerAction]
     public function withSelf(?self $other = null): void
     {
         static::$calls[] = 'withSelf';
     }
 
-    #[Action]
+    #[ServerAction]
     public function withCallable(callable $fn): void
     {
         static::$calls[] = 'withCallable';
     }
 
-    #[Action]
+    #[ServerAction]
     public function withObject(object $thing): void
     {
         static::$calls[] = 'withObject';
     }
 
-    #[Action]
+    #[ServerAction]
     public function withReference(int &$count): void
     {
         static::$calls[] = 'withReference';
     }
 
-    #[Action]
+    #[ServerAction]
     public function withUnion(int|\Countable $thing): void
     {
         static::$calls[] = 'withUnion';

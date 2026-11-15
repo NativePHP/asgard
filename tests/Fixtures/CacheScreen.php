@@ -3,9 +3,8 @@
 namespace Native\Asgard\Tests\Fixtures;
 
 use Illuminate\Http\UploadedFile;
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Attributes\Upload;
 use Native\Asgard\ClientCache;
 use Native\Asgard\Node;
@@ -77,7 +76,7 @@ class CacheScreen extends ServerComponent
     }
 
     /** Changes data but leaves the cache alone. */
-    #[Action]
+    #[ServerAction]
     public function bump(string ...$regions): void
     {
         $this->count++;
@@ -89,7 +88,7 @@ class CacheScreen extends ServerComponent
     }
 
     /** Changes data and tells every client copy to go. */
-    #[Action]
+    #[ServerAction]
     public function bumpAndForce(string ...$regions): void
     {
         $this->count++;
@@ -100,7 +99,7 @@ class CacheScreen extends ServerComponent
         }
     }
 
-    #[Server]
+    #[ServerAction]
     public function serverBump(bool $force, string ...$regions): void
     {
         $this->count++;

@@ -1,10 +1,9 @@
 <?php
 
 use Illuminate\Http\UploadedFile;
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Computed;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Attributes\Upload;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
@@ -39,8 +38,7 @@ it('finds #[Computed] methods and keeps them off every allowlist', function () {
     $metadata = ComponentMetadata::for(ComputedScreen::class);
 
     expect($metadata->computed)->toBe(['total', 'count'])
-        ->and($metadata->servers)->not->toHaveKey('total')
-        ->and($metadata->actions)->not->toHaveKey('total')
+        ->and($metadata->serverActions)->not->toHaveKey('total')
         ->and($metadata->uploads)->not->toHaveKey('total')
         ->and($metadata->regions)->not->toContain('total')
         ->and($metadata->properties)->not->toHaveKey('total');
@@ -115,8 +113,7 @@ it('refuses a #[Computed] that breaks the rules', function (string $class, strin
 })->with([
     'same name as a prop' => [ComputedNamedLikeAProp::class, 'same name as a public prop'],
     'required parameter' => [ComputedWithParams::class, 'cannot have required parameters'],
-    'also a server method' => [ComputedAndServer::class, 'cannot also be #[Server]'],
-    'also an action' => [ComputedAndAction::class, 'cannot also be #[Action]'],
+    'also a server action' => [ComputedAndServerAction::class, 'cannot also be #[ServerAction]'],
     'also an upload' => [ComputedAndUpload::class, 'cannot also be #[Upload]'],
     'also a region' => [ComputedAndRegion::class, 'cannot also be #[Region]'],
     'static' => [StaticComputed::class, 'public, non-static'],
@@ -204,20 +201,10 @@ class ComputedWithParams extends ServerComponent
     }
 }
 
-class ComputedAndServer extends ServerComponent
+class ComputedAndServerAction extends ServerComponent
 {
     #[Computed]
-    #[Server]
-    public function total(): int
-    {
-        return 1;
-    }
-}
-
-class ComputedAndAction extends ServerComponent
-{
-    #[Computed]
-    #[Action]
+    #[ServerAction]
     public function total(): int
     {
         return 1;

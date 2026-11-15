@@ -12,10 +12,10 @@ use InvalidArgumentException;
  *     #[Upload(maxSize: '10M', mimes: ['image/jpeg', 'image/png'])]
  *     public function savePhoto(UploadedFile $file): void {}
  *
- * It is the allowlist for the upload endpoint, kept apart from #[Action]
- * and #[Server]. The method's first parameter must take an
+ * It is the allowlist for the upload endpoint, kept apart from
+ * #[ServerAction]. The method's first parameter must take an
  * Illuminate\Http\UploadedFile. Any others are plain JSON args, checked
- * as an action's are.
+ * as a server action's are.
  *
  * maxSize: the largest file this method takes, as bytes or a size such
  *          as '512K', '10M' or '1G' (powers of 1024). It can only lower

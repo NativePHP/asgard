@@ -59,9 +59,9 @@ class RenderController
         }
 
         // Same rule for actions: the wire `call` is only a key into the map of
-        // #[Action] methods built by reflection. Anything else is unknown.
+        // #[ServerAction] methods built by reflection. Anything else is unknown.
         $action = $payload['action'];
-        $actionSpec = $action ? ($metadata->actions[$action['call']] ?? null) : null;
+        $actionSpec = $action ? ($metadata->serverActions[$action['call']] ?? null) : null;
 
         if ($action && ($actionSpec === null || ! ActionInvoker::accepts($actionSpec, count($action['args'])))) {
             return response()->json(['error' => 'unknown_action'], 404);

@@ -2,8 +2,8 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Screen;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Chrome\Chrome;
 use Native\Asgard\Chrome\NavAction;
 use Native\Asgard\Chrome\NavBar;
@@ -53,7 +53,7 @@ class PromoScreen extends ServerScreen
             ->tabBar(TabBar::make()->hidden()->add(Tab::link('Home', '/', icon: 'home')));
     }
 
-    #[Action]
+    #[ServerAction]
     public function like(int $by = 1): void
     {
         static::$calls[] = 'like';

@@ -2,9 +2,8 @@
 
 namespace Native\Asgard\Tests\Fixtures;
 
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Region;
-use Native\Asgard\Attributes\Server;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Node;
 use Native\Asgard\ServerComponent;
 
@@ -25,21 +24,21 @@ class RowsScreen extends ServerComponent
         return $this->build('Account');
     }
 
-    #[Action]
+    #[ServerAction]
     public function more(): void
     {
         $this->count += 10;
     }
 
     /** Grows, and redraws both regions in one answer. */
-    #[Action]
+    #[ServerAction]
     public function grow(): void
     {
         $this->count += 10;
         $this->refresh('rows', 'private');
     }
 
-    #[Server]
+    #[ServerAction]
     public function regrow(string ...$regions): void
     {
         $this->count += 10;

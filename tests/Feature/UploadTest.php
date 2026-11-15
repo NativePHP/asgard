@@ -208,8 +208,7 @@ it('only runs #[Upload] methods', function (string $method, array $args = []) {
 
     expect(UploadScreen::$calls)->toBe([]);
 })->with([
-    'a #[Server] method' => ['serverOnly'],
-    'an #[Action]' => ['actionOnly'],
+    'a #[ServerAction]' => ['serverAction'],
     'unmarked' => ['unmarked'],
     'no file parameter' => ['noFile', ['x']],
     'a nullable file' => ['nullableFile'],
@@ -221,11 +220,10 @@ it('only runs #[Upload] methods', function (string $method, array $args = []) {
     'too many args' => ['savePhoto', ['a', 'b']],
 ]);
 
-it('keeps #[Upload] out of the #[Server] and #[Action] allowlists', function () {
+it('keeps #[Upload] out of the #[ServerAction] allowlist', function () {
     $metadata = ComponentMetadata::for(UploadScreen::class);
 
-    expect($metadata->servers)->toHaveKeys(['serverOnly'])->not->toHaveKey('savePhoto')
-        ->and($metadata->actions)->not->toHaveKey('savePhoto')
+    expect(array_keys($metadata->serverActions))->toBe(['serverAction'])
         ->and(array_keys($metadata->uploads))->toBe(['savePhoto', 'anyFile', 'anyImage', 'withRefresh', 'moveIt', 'takesTwo'])
         ->and($metadata->uploads['savePhoto']['maxSize'])->toBe(1024)
         ->and($metadata->uploads['savePhoto']['mimes'])->toBe(['image/png', 'image/jpeg']);

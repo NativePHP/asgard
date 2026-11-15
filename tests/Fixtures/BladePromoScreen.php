@@ -3,8 +3,8 @@
 namespace Native\Asgard\Tests\Fixtures;
 
 use Illuminate\Contracts\View\View;
-use Native\Asgard\Attributes\Action;
 use Native\Asgard\Attributes\Screen;
+use Native\Asgard\Attributes\ServerAction;
 use Native\Asgard\Chrome\Chrome;
 use Native\Asgard\Chrome\NavBar;
 use Native\Asgard\ServerScreen;
@@ -30,7 +30,7 @@ class BladePromoScreen extends ServerScreen
             ->tabAccessory(view('regions.partial', ['label' => "Promo {$this->id}"]));
     }
 
-    #[Action]
+    #[ServerAction]
     public function like(): void
     {
         $this->likes++;
