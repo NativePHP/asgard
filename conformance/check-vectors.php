@@ -4,6 +4,7 @@
 require __DIR__.'/../vendor/autoload.php';
 
 use Native\Asgard\Security\{Aes128Gcm, Base64Url, Ecdh, Gzip, SessionKeys, Wire, SecurityException};
+use Native\Asgard\Support\CanonicalState;
 
 $v = json_decode(file_get_contents($argv[1]), true);
 $u = fn ($s) => Base64Url::decode($s);
@@ -64,6 +65,11 @@ $check('records', function () use ($v, $keys, $session, $u, $e, $eq) {
     $r = $v['records'];
     $eq('body', $e(Aes128Gcm::encrypt($r['plaintext'], $keys->encServer, $session, 4096, $u($r['salt']))), $r['expected']['body']);
 });
+foreach ($v['canonical'] as $c) {
+    $check('canonical '.$c['name'], function () use ($c, $eq) {
+        foreach ($c['inputs'] as $i => $in) $eq("input $i", CanonicalState::encode(json_decode($in, false, 512, JSON_THROW_ON_ERROR)), $c['expected']);
+    });
+}
 foreach ($v['refuse'] as $t) {
     $check('refuse '.$t['name'], function () use ($t, $v, $keys, $session, $u, &$sigs, $streamSig) {
         try {
@@ -80,8 +86,9 @@ foreach ($v['refuse'] as $t) {
                     return Wire::openEvent($keys, $session, $streamSig, $t['id'] ?? $ev['id'], $ev['event'], json_encode($d, JSON_UNESCAPED_SLASHES));
                 })(),
                 'point' => Ecdh::agree(Ecdh::generate()[0], $u($t['point'])),
+                'canonical' => CanonicalState::encode(json_decode($t['input'], false, 512, JSON_THROW_ON_ERROR)),
             };
-        } catch (SecurityException) { return; }
+        } catch (SecurityException|JsonException|InvalidArgumentException) { return; }
         throw new RuntimeException('accepted: '.$t['why']);
     });
 }
