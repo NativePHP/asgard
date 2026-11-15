@@ -33,7 +33,7 @@ it('adds the headers to the handshake', function () {
     [, $public] = Ecdh::generate();
 
     $response = $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
-        'key' => TestCase::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+        'key' => TestCase::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
     ]))->assertOk();
 
     expectConfiguredHeaders($response);

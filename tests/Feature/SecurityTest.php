@@ -20,7 +20,7 @@ function handshakeBody(array $overrides = []): string
     [, $public] = Ecdh::generate();
 
     return json_encode(array_merge([
-        'key' => TestCase::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+        'key' => TestCase::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
     ], $overrides));
 }
 
@@ -38,10 +38,11 @@ it('agrees a session without the secret crossing the wire', function () {
     [$private, $public] = Ecdh::generate();
 
     $response = $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
-        'key' => TestCase::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+        'key' => TestCase::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
     ]))->assertOk();
 
-    expect(array_keys($response->json()))->toBe(['session', 'server_public', 'expires_in', 'encoding'])
+    expect(array_keys($response->json()))->toBe(['session', 'server_public', 'protocol', 'expires_in', 'encoding'])
+        ->and($response->json('protocol'))->toBe(1)
         ->and($response->json('expires_in'))->toBe(1800)
         ->and($response->json('encoding'))->toBe('tree/json')
         ->and(strlen(Base64Url::decode($response->json('server_public'))))->toBe(65);
@@ -68,7 +69,9 @@ it('refuses a bad handshake', function (array $overrides, string $error) {
     $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], handshakeBody($overrides))
         ->assertStatus(422)->assertJsonPath('error', $error);
 })->with([
-    'other protocol' => [['protocol' => 2], 'unsupported_protocol'],
+    'other protocol' => [['protocols' => [2]], 'unsupported_protocol'],
+    'protocols not a list' => [['protocols' => 1], 'invalid_request'],
+    'protocols repeated' => [['protocols' => [1, 1]], 'invalid_request'],
     'no tree/json' => [['accepts' => ['tree/flat']], 'unsupported_encoding'],
     'no public key' => [['client_public' => null], 'invalid_request'],
     'not base64url' => [['client_public' => 'a+b/'], 'invalid_request'],
