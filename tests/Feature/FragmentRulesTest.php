@@ -31,7 +31,7 @@ function elementsHandshake(mixed $elements): TestResponse
 
 function typed(string $type): array
 {
-    return asgardBody(['component' => 'app.native.screens.bad', 'region' => 'typed', 'state' => ['type' => $type]]);
+    return asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['typed'], 'state' => ['type' => $type]]);
 }
 
 /** A column nested $depth levels deep, counting the root as 1. */
@@ -91,7 +91,7 @@ it('takes 256 types of up to 64 characters', function () {
 // Types
 
 it('renders every core type for a client that listed nothing', function (string $type) {
-    $this->asgard(typed($type))->assertOk()->assertJsonPath('fragment.type', $type);
+    $this->asgard(typed($type))->assertOk()->assertJsonPath('fragments.typed.fragment.type', $type);
 })->with(FragmentValidator::CORE_TYPES);
 
 it('refuses a type the client did not list', function () {
@@ -106,7 +106,7 @@ it('refuses a type the client did not list', function () {
 it('renders a type the client listed', function () {
     $this->handshake(['list_item']);
 
-    $this->asgard(typed('list_item'))->assertOk()->assertJsonPath('fragment.type', 'list_item');
+    $this->asgard(typed('list_item'))->assertOk()->assertJsonPath('fragments.typed.fragment.type', 'list_item');
 });
 
 it('never renders chrome or a region, even when the client lists it', function () {

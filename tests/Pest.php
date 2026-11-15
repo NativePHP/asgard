@@ -10,7 +10,7 @@ function asgardBody(array $overrides = []): array
     return array_merge([
         'protocol' => 1,
         'component' => 'app.native.screens.home',
-        'region' => 'greeting',
+        'regions' => ['greeting'],
         'state' => ['name' => 'Simon', 'platform' => 'ios'],
     ], $overrides);
 }

@@ -441,9 +441,9 @@ public function bump(): void
 
 The component is already hydrated with the request's state, so after the
 method runs those regions are rendered too, as the request's user, and go
-back in the same answer under `fragments`. An action still answers with its
-own region's fragment as always. Only the instance on the phone that sent the
-request paints them, and only if it drew those regions.
+back in the same answer under `fragments`, next to the action's own region.
+A region named twice is rendered once. Only the instance on the phone that
+sent the request paints them, and only if it drew those regions.
 
 **Other components on this phone, a hint.** Name a class or an address, and
 maybe one region. Leave the region out to mean all of them:
@@ -493,7 +493,8 @@ sets no limit. The client keeps a copy for the shorter of its own TTL and
 A copy is fresh when its age is under the shorter of the client's TTL and the
 region's max age. A `made_at` up to a minute in the future still counts, for
 clock skew. For a fresh region the server does not call the region method at
-all. It answers `{"cached": true}` and the client keeps what it shows.
+all. Its part of the answer is `{"cached": true}` and the client keeps what it
+shows.
 
 A fresh copy with `grace` seconds or less left is rendered anyway and sent as
 a normal fragment, with no `Asgard-Cache` header. The client stores it like
@@ -943,33 +944,41 @@ QUERY, so use the POST form there.
 **Request body:**
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon","platform":"ios"}}
+{"protocol":1,"component":"app.native.screens.home","regions":["greeting"],"state":{"name":"Simon","platform":"ios"}}
 ```
 
-An action request adds `action`. `call` and `args` are both required.
-`target` may be left out or set to `"server"`. Any other value, including
-`"client"`, is a 422.
-
-```json
-{"protocol":1,"component":"app.native.screens.home","region":"greeting","state":{"name":"Simon","platform":"ios"},
- "action":{"call":"wave","args":[1]}}
-```
-
-A device that wants several regions of one component and state asks for
-them in one request, with `regions` instead of `region`. It holds 1 to 16
-distinct names, and cannot carry an `action`:
+`regions` is a list of distinct region names, even for one region. A body
+with `region` instead is a 422. A device that wants several regions of one
+component and state names them all in one request:
 
 ```json
 {"protocol":1,"component":"app.native.screens.home","regions":["greeting","stats"],"state":{"name":"Simon","platform":"ios"}}
 ```
 
-A render or batch request may carry `cache`, the copies of regions of this
+A request may name at most `asgard.max_regions` regions (16 by default,
+`ASGARD_MAX_REGIONS`). One over the limit gets 422
+`{"error":"too_many_regions",…}` and nothing in it is rendered. The client
+can split the regions across smaller requests.
+
+An action request adds `action` and names exactly one region, the action's
+own, in `regions`. Any other count is a 422. `call` and `args` are both
+required. `target` may be left out or set to `"server"`. Any other value,
+including `"client"`, is a 422.
+
+```json
+{"protocol":1,"component":"app.native.screens.home","regions":["greeting"],"state":{"name":"Simon","platform":"ios"},
+ "action":{"call":"wave","args":[1]}}
+```
+
+A server screen asks for `"regions":["screen"]`.
+
+A render or action request may carry `cache`, the copies of regions of this
 component the client holds, keyed by region name (`screen` for a server
 screen). `made_at` is the server's own value from when the copy was made.
 `ttl` is the client's effective TTL in seconds:
 
 ```json
-{"protocol":1,"component":"app.native.screens.home","region":"stats","state":{…},
+{"protocol":1,"component":"app.native.screens.home","regions":["stats"],"state":{…},
  "cache":{"stats":{"made_at":1763150000123,"ttl":300}}}
 ```
 
@@ -978,7 +987,7 @@ each entry has exactly `made_at` (a positive integer) and `ttl` (an integer
 from 0 to 31536000). Anything else is a 422. Names that are not regions of
 the component are ignored.
 
-A render or batch request sent because a push told the client to fetch adds
+A render request sent because a push told the client to fetch adds
 `"reason":"push"`. Any other value is a 422. The server does not act on it by
 itself; `fetchedForPush()` exposes it.
 
@@ -989,31 +998,32 @@ server to know about itself in `state`. One that still sends `platform` has it
 ignored, as any unknown member is. A malformed request gets 422
 `{"error":"invalid_request","message":"…"}`.
 
-**Response 200:**
+**Response 200:** a `fragments` map with one part per region, keyed by
+region, in the order asked. There is nothing else at the top level but
+`protocol`, and `refresh` on an action answer.
 
 ```json
-{"protocol":1,"region":"greeting","version":"…","made_at":1763150000123,"max_age":60,
- "fragment":{"type":"column","class":"p-4 gap-2","children":[{"type":"text","props":{"text":"Hello"}}]}}
+{"protocol":1,"fragments":{
+ "greeting":{"version":"…","made_at":1763150000123,"max_age":60,
+  "fragment":{"type":"column","class":"p-4 gap-2","children":[{"type":"text","props":{"text":"Hello"}}]}}}}
 ```
 
-Every fragment the server sends, here and in every `fragments` map, carries
-`made_at` (Unix milliseconds when it was rendered) and `max_age` (seconds),
-next to `version`. `max_age` is left out when the server sets no limit.
+A part has the region's `version`, `made_at` (Unix milliseconds when it was
+rendered), `max_age` (seconds) and `fragment`. A server screen's part has
+`chrome` too. `max_age` is left out when the server sets no limit. The parts
+of a call or upload answer have the same shape.
 
 When the client declared a copy of the region in this request, and it has
 more than `asgard.cache.grace` seconds of freshness left, the region is not
-rendered and the answer is only:
+rendered and its part is only `{"cached":true}`. A cached part has no
+`version`, `made_at`, `max_age` or `chrome`, since the client's copy keeps the
+ones it came with:
 
 ```json
-{"protocol":1,"cached":true}
+{"protocol":1,"fragments":{"greeting":{"version":"…","made_at":1763150000123,"fragment":{…}},"stats":{"cached":true}}}
 ```
 
-An action answer for a fresh region is the same, plus any `fragments` and
-`refresh` it carries. In a `fragments` map a fresh region is
-`"stats":{"cached":true}`. A cached part has no `version`, since the client's
-copy keeps the one it came with.
-
-A copy inside the grace window is rendered and sent as a normal fragment. A
+A copy inside the grace window is rendered and sent as a normal part. A
 region the request did not declare is never answered with `cached`.
 
 When the request forced invalidation, every region is rendered and the
@@ -1022,25 +1032,19 @@ right after `asgard-protocol`, whenever it is present. A response that
 carries the header without covering it does not verify. Calls and uploads
 can carry the header too, even with no fragments.
 
-An action whose method called `refresh()` adds `fragments`, the other regions
-it rendered, and `refresh`, the hints. Each is left out when empty:
+An action answer always has a part for the action's own region. When the
+method called `refresh()`, the other regions it rendered are more parts, and
+`refresh` carries the hints. `refresh` is left out when empty:
 
 ```json
-{"protocol":1,"region":"stats","version":"…","made_at":1763150000123,"fragment":{…},
- "fragments":{"greeting":{"version":"q3V0bG9yZW1pcHN1","made_at":1763150000123,"fragment":{…}}},
+{"protocol":1,"fragments":{
+ "stats":{"version":"…","made_at":1763150000123,"fragment":{…}},
+ "greeting":{"version":"q3V0bG9yZW1pcHN1","made_at":1763150000123,"fragment":{…}}},
  "refresh":[{"component":"app.native.screens.inbox","region":"unread"}]}
 ```
 
-A `regions` request is answered with one part per region, keyed by region.
-Each part has the region's own `version`, `made_at` and `max_age`, its
-`fragment`, and `chrome` for a server screen, or is `{"cached":true}`:
-
-```json
-{"protocol":1,"fragments":{"greeting":{"version":"…","made_at":1763150000123,"fragment":{…}},"stats":{"cached":true}}}
-```
-
-An answer is gzipped only when every region in it allows it. A batch or an
-action answer that includes a `compress: false` region is sent as it is.
+An answer is gzipped only when every region in it allows it. An answer that
+includes a `compress: false` region is sent as it is.
 
 `fragment` is one node or a list of nodes:
 `{type, key?, props?, class?, on_press?, on_long_press?, on_double_tap?, on_change?, on_submit?, children?}`.
@@ -1064,7 +1068,8 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[Action]` on the component, or the arg count doesn't fit it. |
 | 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`, or a method other than QUERY and POST. Plain, unsigned. |
 | 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
-| 422 | `{"error":"invalid_request","message":…}` | Bad body, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
+| 422 | `{"error":"invalid_request","message":…}` | Bad body, `region` instead of `regions`, an action that does not name exactly one region, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
+| 422 | `{"error":"too_many_regions","message":…}` | `regions` names more than `asgard.max_regions`. Nothing is rendered. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment, including one with a type the client did not list. The message is included in debug. |
 
 ### Call
@@ -1167,8 +1172,8 @@ errors as render: 405, 422 (bad body, bad subscriptions, an `action` key, state
 that doesn't fit), 404 `unknown_component` (unknown component, or any region
 it doesn't declare, in any subscription), 500 `invalid_fragment`.
 
-Render answers carry the token too, next to `region`:
-`{"protocol":1,"region":"greeting","version":"q3V0bG9yZW1pcHN1","fragment":{…}}`.
+Render answers carry the token too, in each part:
+`{"protocol":1,"fragments":{"greeting":{"version":"q3V0bG9yZW1pcHN1","made_at":1763150000123,"fragment":{…}}}}`.
 It is opaque, up to 64 characters of `A-Z a-z 0-9 _ -`.
 
 **Response 200:** `Content-Type: text/event-stream`, `Cache-Control: no-cache`,

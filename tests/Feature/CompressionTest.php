@@ -10,7 +10,7 @@ use Native\Asgard\Tests\TestCase;
 
 function rowsBody(string $region, int $count = 200, array $extra = []): array
 {
-    return ['protocol' => 1, 'component' => 'app.native.screens.rows', 'region' => $region, 'state' => ['count' => $count], ...$extra];
+    return ['protocol' => 1, 'component' => 'app.native.screens.rows', 'regions' => [$region], 'state' => ['count' => $count], ...$extra];
 }
 
 /** Raw `data` lines of the fragment events in an SSE body, by region order. */
@@ -32,8 +32,8 @@ it('gzips a large fragment before encrypting it', function () {
 
     expect($response->headers->get('Content-Encoding'))->toBe('aes128gcm')
         ->and($response->headers->get('Asgard-Content-Coding'))->toBe('gzip')
-        ->and($response->json('fragment'))->toHaveCount(200)
-        ->and($response->json('fragment.199.children.0.props.text'))->toBe('Row 200')
+        ->and($response->json('fragments.rows.fragment'))->toHaveCount(200)
+        ->and($response->json('fragments.rows.fragment.199.children.0.props.text'))->toBe('Row 200')
         ->and($this->wireLength)->toBeLessThan(intdiv(strlen($plaintext), 5));
 });
 
@@ -41,7 +41,7 @@ it('leaves a region that opted out uncompressed', function () {
     $response = $this->asgard(rowsBody('private'))->assertOk();
 
     expect($response->headers->get('Asgard-Content-Coding'))->toBe('identity')
-        ->and($response->json('fragment'))->toHaveCount(200)
+        ->and($response->json('fragments.private.fragment'))->toHaveCount(200)
         ->and($this->wireLength)->toBeGreaterThan(strlen($response->getContent()));
 });
 
@@ -54,11 +54,11 @@ it('does not compress a fragment below the minimum size', function () {
 
 it('compresses an action answer the way its region says', function () {
     $this->asgard(rowsBody('rows', 200, ['action' => ['call' => 'more', 'args' => []]]))
-        ->assertOk()->assertJsonCount(210, 'fragment')
+        ->assertOk()->assertJsonCount(210, 'fragments.rows.fragment')
         ->assertHeader('Asgard-Content-Coding', 'gzip');
 
     $this->asgard(rowsBody('private', 200, ['action' => ['call' => 'more', 'args' => []]]))
-        ->assertOk()->assertJsonCount(210, 'fragment')
+        ->assertOk()->assertJsonCount(210, 'fragments.private.fragment')
         ->assertHeader('Asgard-Content-Coding', 'identity');
 });
 
@@ -158,23 +158,20 @@ it('refuses gzip that is corrupt or cut short', function () {
 
 // ── Several regions in one answer ───────────────────
 
-function rowsBatch(array $regions): array
+function rowsRegions(array $regions): array
 {
-    $body = rowsBody('rows');
-    unset($body['region']);
-
-    return [...$body, 'regions' => $regions];
+    return [...rowsBody('rows'), 'regions' => $regions];
 }
 
-it('compresses a batch when every region in it allows it', function () {
-    $response = $this->asgard(rowsBatch(['rows']))->assertOk();
+it('compresses an answer when every region in it allows it', function () {
+    $response = $this->asgard(rowsRegions(['rows']))->assertOk();
 
     expect($response->headers->get('Asgard-Content-Coding'))->toBe('gzip')
         ->and($response->json('fragments.rows.fragment'))->toHaveCount(200);
 });
 
-it('leaves a batch uncompressed when any region in it opted out', function () {
-    $response = $this->asgard(rowsBatch(['rows', 'private']))->assertOk();
+it('leaves an answer uncompressed when any region in it opted out', function () {
+    $response = $this->asgard(rowsRegions(['rows', 'private']))->assertOk();
 
     expect($response->headers->get('Asgard-Content-Coding'))->toBe('identity')
         ->and($response->json('fragments.private.fragment'))->toHaveCount(200);
@@ -184,8 +181,8 @@ it('leaves an action answer uncompressed when an inline region opted out', funct
     $response = $this->asgard(rowsBody('rows', 200, ['action' => ['call' => 'grow', 'args' => []]]))->assertOk();
 
     expect($response->headers->get('Asgard-Content-Coding'))->toBe('identity')
-        ->and($response->json('fragment'))->toHaveCount(210)
-        ->and(array_keys($response->json('fragments')))->toBe(['private']);
+        ->and($response->json('fragments.rows.fragment'))->toHaveCount(210)
+        ->and(array_keys($response->json('fragments')))->toBe(['rows', 'private']);
 });
 
 it('never compresses a call answer, even with fragments that allow it', function (array $regions) {

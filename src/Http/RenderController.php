@@ -8,9 +8,9 @@ use Illuminate\Http\Request;
 use Native\Asgard\Blade\RegionViews;
 use Native\Asgard\ComponentRegistry;
 use Native\Asgard\Exceptions\InvalidRequest;
+use Native\Asgard\Exceptions\TooManyRegions;
 use Native\Asgard\Http\Concerns\ReadsAsgardRequests;
 use Native\Asgard\Http\Concerns\RendersRegions;
-use Native\Asgard\ServerComponent;
 use Native\Asgard\Support\ActionInvoker;
 use Native\Asgard\Support\Callback;
 use Native\Asgard\Support\ComponentMetadata;
@@ -29,13 +29,15 @@ class RenderController
         protected PushVersions $versions,
     ) {}
 
-    /** At most this many regions in one batch render. */
+    /** The default for asgard.max_regions. */
     public const MAX_REGIONS = 16;
 
     public function __invoke(Request $request): JsonResponse
     {
         try {
             $payload = $this->payload($request);
+        } catch (TooManyRegions $e) {
+            return $this->error(422, 'too_many_regions', $e->getMessage());
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
@@ -65,8 +67,14 @@ class RenderController
             return response()->json(['error' => 'unknown_action'], 404);
         }
 
+        // An action names exactly one region, its own.
+        $own = $action ? $payload['regions'][0] : null;
+        $regions = $payload['regions'];
+        $tokens = [];
+        $hints = [];
+
         $component = $this->container->make($class);
-        $component->setAsgardContext($payload['region'] ?? '');
+        $component->setAsgardContext($own ?? '');
         $this->giveClientCache($component, $metadata, $payload['cache']);
         $component->setAsgardPush($payload['push']);
 
@@ -79,54 +87,36 @@ class RenderController
             // sends that region again.
             $channels = $this->channelsOf($component);
 
-            if ($payload['region'] === null) {
-                return $this->batch($request, $component, $metadata, $payload, $channels);
-            }
-
-            $version = $this->tokens($payload['component'], [$payload['region']], $channels)[$payload['region']];
-
             if ($action) {
+                $tokens = $this->tokens($payload['component'], [$own], $channels);
+
                 ActionInvoker::invoke($component, $action['call'], $actionSpec, $action['args']);
+
+                // What refresh() asked for rides along, rendered with the
+                // action's own region so one cache decision covers all. A
+                // region named twice renders once.
+                $asked = $component->asgardRefreshes();
+                $regions = array_values(array_unique([$own, ...$asked['regions']]));
+                $hints = $asked['hints'];
             }
         } catch (InvalidRequest $e) {
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
 
-        // Only an action can call refresh(). What it asked for rides along,
-        // rendered with the acting region so one cache decision covers all.
-        $own = $payload['region'];
-        $regions = [$own];
-        $hints = [];
-
-        if ($action) {
-            $asked = $component->asgardRefreshes();
-            $regions = array_values(array_unique([$own, ...$asked['regions']]));
-            $hints = $asked['hints'];
-        }
-
-        $parts = $this->renderParts($component, $metadata, $payload['component'], $regions, $channels, [$own => $version]);
+        $parts = $this->renderParts($component, $metadata, $payload['component'], $regions, $channels, $tokens);
 
         if ($parts instanceof JsonResponse) {
             return $parts;
         }
 
-        $part = $parts[$own];
-        unset($parts[$own]);
-
-        // A fresh client copy goes back as {"protocol":1,"cached":true}.
-        $answer = isset($part['cached'])
-            ? ['protocol' => self::PROTOCOL, 'cached' => true]
-            : ['protocol' => self::PROTOCOL, 'region' => $own, ...$part];
-
-        if ($parts !== []) {
-            $answer['fragments'] = $parts;
-        }
+        $answer = ['protocol' => self::PROTOCOL, 'fragments' => $parts];
 
         if ($hints !== []) {
             $answer['refresh'] = $hints;
         }
 
-        // An answer is compressed only when every region in it allows it.
+        // An answer is compressed only when every region in it allows it, so
+        // a region that opted out is never in a compressed body.
         $compress = true;
         foreach ($regions as $region) {
             $compress = $compress && $metadata->compresses($region);
@@ -138,69 +128,32 @@ class RenderController
     }
 
     /**
-     * Several regions of one component and state in one answer, keyed by
-     * region, each with its own version token. No action runs.
-     *
-     * @param  array{component: string, regions: list<string>, state: array<string, mixed>, cache: array<string, array{made_at: int, ttl: int}>}  $payload
-     * @param  list<string>  $channels
-     */
-    protected function batch(Request $request, ServerComponent $component, ComponentMetadata $metadata, array $payload, array $channels): JsonResponse
-    {
-        $parts = $this->renderParts($component, $metadata, $payload['component'], $payload['regions'], $channels);
-
-        if ($parts instanceof JsonResponse) {
-            return $parts;
-        }
-
-        // One region that opted out keeps the whole body uncompressed.
-        $compress = true;
-        foreach ($payload['regions'] as $region) {
-            $compress = $compress && $metadata->compresses($region);
-        }
-
-        $request->attributes->set(SecureRequest::COMPRESS, $compress);
-
-        return $this->respond($component, [
-            'protocol' => self::PROTOCOL,
-            'fragments' => $parts,
-        ]);
-    }
-
-    /**
-     * A body names one region (`region`) or several (`regions`), never
-     * both. `regions` holds 1 to 16 distinct names and cannot carry an
-     * action. `region` is null for a batch, and `regions` always lists
-     * what is rendered.
+     * A body names the regions it wants in `regions`, a list even for one.
+     * A body with an `action` names exactly one, the action's own region.
      *
      * `cache` lists the copies of regions the client holds. `push` is
      * whether the body said `"reason": "push"`.
      *
-     * @return array{component: string, region: ?string, regions: list<string>, state: array<string, mixed>, action: array{call: string, args: list<mixed>}|null, cache: array<string, array{made_at: int, ttl: int}>, push: bool}
+     * @return array{component: string, regions: list<string>, state: array<string, mixed>, action: array{call: string, args: list<mixed>}|null, cache: array<string, array{made_at: int, ttl: int}>, push: bool}
      */
     protected function payload(Request $request): array
     {
         $body = $this->body($request);
         $component = $this->component($body['component'] ?? null);
 
-        if (array_key_exists('regions', $body)) {
-            if (array_key_exists('region', $body)) {
-                throw new InvalidRequest('Send region or regions, not both.');
-            }
-
-            if (array_key_exists('action', $body)) {
-                throw new InvalidRequest('An action names one region, not regions.');
-            }
-
-            $regions = $this->regionNames($body['regions']);
-            $region = null;
-        } else {
-            $region = $this->regionName($body['region'] ?? null);
-            $regions = [$region];
+        if (array_key_exists('region', $body)) {
+            throw new InvalidRequest('region is not a field. Send regions, a list even for one region.');
         }
+
+        $regions = $this->regionNames($body['regions'] ?? null);
 
         $state = $this->state($body['state'] ?? null);
 
         $action = array_key_exists('action', $body) ? $this->action($body['action']) : null;
+
+        if ($action !== null && count($regions) !== 1) {
+            throw new InvalidRequest('A request with an action names exactly one region in regions.');
+        }
 
         $cache = $this->cache($body['cache'] ?? null);
 
@@ -212,14 +165,28 @@ class RenderController
 
         $push = array_key_exists('reason', $body);
 
-        return compact('component', 'region', 'regions', 'state', 'action', 'cache', 'push');
+        return compact('component', 'regions', 'state', 'action', 'cache', 'push');
+    }
+
+    /**
+     * The most regions one request may name, from asgard.max_regions.
+     */
+    public static function maxRegions(): int
+    {
+        return max(1, (int) config('asgard.max_regions', self::MAX_REGIONS));
     }
 
     /** @return list<string> */
     protected function regionNames(mixed $regions): array
     {
-        if (! is_array($regions) || ! array_is_list($regions) || $regions === [] || count($regions) > self::MAX_REGIONS) {
-            throw new InvalidRequest('regions must be a list of 1 to '.self::MAX_REGIONS.' region names.');
+        if (! is_array($regions) || ! array_is_list($regions) || $regions === []) {
+            throw new InvalidRequest('regions must be a list of at least one region name.');
+        }
+
+        // Over the limit, nothing in the request is looked at further.
+        $max = self::maxRegions();
+        if (count($regions) > $max) {
+            throw new TooManyRegions("A request names at most {$max} regions.");
         }
 
         foreach ($regions as $i => $region) {

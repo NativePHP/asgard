@@ -71,7 +71,7 @@ it('adds the headers to the stream', function () {
 it('adds the headers to errors, sealed or plain', function () {
     // Sealed 404 and 422.
     expectConfiguredHeaders($this->asgard(asgardBody(['component' => 'nope']))->assertNotFound());
-    expectConfiguredHeaders($this->asgard(asgardBody(['region' => 5]))->assertStatus(422));
+    expectConfiguredHeaders($this->asgard(asgardBody(['regions' => [5]]))->assertStatus(422));
 
     // Plain 419, 403 and 405s.
     expectConfiguredHeaders($this->call('QUERY', '/_asgard/render', [], [], [], ['CONTENT_TYPE' => 'application/json'], '{}')->assertStatus(419));

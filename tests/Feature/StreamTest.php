@@ -90,7 +90,7 @@ it('ignores Last-Event-ID and goes by version tokens', function () {
 /** The version token render answers with for a region of the home screen. */
 function renderedVersion(TestCase $test, string $region): string
 {
-    return $test->asgard(asgardBody(['region' => $region]))->assertOk()->json('version');
+    return $test->asgard(asgardBody(['regions' => [$region]]))->assertOk()->json("fragments.{$region}.version");
 }
 
 it('answers a render with the token the stream would start from', function () {

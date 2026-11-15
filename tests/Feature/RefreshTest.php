@@ -28,10 +28,10 @@ function refreshAction(array $action, array $overrides = []): array
 it('renders the regions an action asked for in the same answer', function () {
     $response = $this->asgard(refreshAction(['call' => 'redraw', 'args' => ['list', 'tags']]))->assertOk();
 
-    // The acting region is still the answer's own fragment.
-    expect($response->json('region'))->toBe('greeting')
-        ->and($response->json('fragment.children.2.props.text'))->toBe('Count: 3')
-        ->and(array_keys($response->json('fragments')))->toBe(['list', 'tags'])
+    // The action's own region comes first, then the ones it asked for.
+    expect(array_keys($response->json()))->toBe(['protocol', 'fragments'])
+        ->and($response->json('fragments.greeting.fragment.children.2.props.text'))->toBe('Count: 3')
+        ->and(array_keys($response->json('fragments')))->toBe(['greeting', 'list', 'tags'])
         ->and($response->json('fragments.list.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/')
         ->and($response->json('fragments.tags.fragment'))->toBe([
             'type' => 'row',
@@ -43,20 +43,21 @@ it('renders the regions an action asked for in the same answer', function () {
         ->and($response->json())->not->toHaveKey('refresh');
 
     // Each region's token is the one a render of it would carry.
-    $render = $this->asgard(asgardBody(['region' => 'tags', 'state' => ['name' => 'Simon', 'count' => 2]]));
-    expect($response->json('fragments.tags.version'))->toBe($render->json('version'));
+    $render = $this->asgard(asgardBody(['regions' => ['tags'], 'state' => ['name' => 'Simon', 'count' => 2]]));
+    expect($response->json('fragments.tags.version'))->toBe($render->json('fragments.tags.version'));
 });
 
-it('leaves out the acting region when an action names it too', function () {
-    $response = $this->asgard(refreshAction(['call' => 'redraw', 'args' => ['greeting', 'list']]))->assertOk();
+it('renders the action\'s own region once when the action names it too', function () {
+    $response = $this->asgard(refreshAction(['call' => 'redraw', 'args' => ['list', 'greeting']]))->assertOk();
 
-    expect(array_keys($response->json('fragments')))->toBe(['list']);
+    expect(array_keys($response->json('fragments')))->toBe(['greeting', 'list']);
 });
 
-it('sends no fragments member when an action asks for nothing', function () {
+it('answers only the action\'s own region when an action asks for nothing', function () {
     $response = $this->asgard(refreshAction(['call' => 'shuffle', 'args' => []]))->assertOk();
 
-    expect($response->json())->not->toHaveKey('fragments')->not->toHaveKey('refresh');
+    expect(array_keys($response->json()))->toBe(['protocol', 'fragments'])
+        ->and(array_keys($response->json('fragments')))->toBe(['greeting']);
 });
 
 it('renders the regions a #[Server] call asked for after the delta', function () {
@@ -80,7 +81,7 @@ it('renders inline regions as the request user, not as a guest', function () {
     $this->actingAs((new User)->forceFill(['id' => 5]));
 
     $action = $this->asgard(asgardBody([
-        'component' => 'app.native.screens.channel', 'region' => 'body', 'state' => ['promo' => 42],
+        'component' => 'app.native.screens.channel', 'regions' => ['body'], 'state' => ['promo' => 42],
         'action' => ['call' => 'poke', 'args' => []],
     ]))->assertOk();
 
@@ -108,7 +109,7 @@ it('names another component by class or address as a hint', function (array $arg
     $response = $this->asgard(refreshAction(['call' => 'hint', 'args' => $args]))->assertOk();
 
     expect($response->json('refresh'))->toBe($refresh)
-        ->and($response->json())->not->toHaveKey('fragments');
+        ->and(array_keys($response->json('fragments')))->toBe(['greeting']);
 })->with([
     'a class and region' => [[ChildScreen::class, 'count'], [['component' => 'app.native.screens.child', 'region' => 'count']]],
     'an address' => [['app.native.screens.child'], [['component' => 'app.native.screens.child']]],
@@ -124,7 +125,7 @@ it('merges hints, with a whole component covering its regions', function () {
     expect($response->json('refresh'))->toBe([
         ['component' => 'app.native.screens.child'],
         ['component' => 'app.native.screens.channel', 'region' => 'title'],
-    ])->and(array_keys($response->json('fragments')))->toBe(['list', 'tags']);
+    ])->and(array_keys($response->json('fragments')))->toBe(['greeting', 'list', 'tags']);
 });
 
 it('carries hints on a call answer', function () {
@@ -160,11 +161,10 @@ it('does not push anything for a hint', function () {
     expect(app(PushVersions::class)->snapshot('app.native.screens.child', ['count']))->toBe($before);
 });
 
-// ── Batch renders ────────────────────────────────────
+// ── Several regions in one request ──────────────────
 
 it('renders several regions in one answer, keyed by region', function () {
     $body = asgardBody(['regions' => ['greeting', 'tags'], 'state' => ['name' => 'Simon', 'tags' => ['x']]]);
-    unset($body['region']);
 
     $response = $this->asgard($body)->assertOk();
 
@@ -174,60 +174,57 @@ it('renders several regions in one answer, keyed by region', function () {
         ->and($response->json('fragments.tags.fragment.children.0.props.text'))->toBe('x');
 
     foreach (['greeting', 'tags'] as $region) {
-        $single = $this->asgard(asgardBody(['region' => $region, 'state' => ['name' => 'Simon', 'tags' => ['x']]]));
+        $single = $this->asgard(asgardBody(['regions' => [$region], 'state' => ['name' => 'Simon', 'tags' => ['x']]]));
 
-        expect($response->json("fragments.{$region}.version"))->toBe($single->json('version'))
-            ->and($response->json("fragments.{$region}.fragment"))->toBe($single->json('fragment'));
+        expect($response->json("fragments.{$region}.version"))->toBe($single->json("fragments.{$region}.version"))
+            ->and($response->json("fragments.{$region}.fragment"))->toBe($single->json("fragments.{$region}.fragment"));
     }
 });
 
-it('sends a batch of one as a batch answer', function () {
-    $body = asgardBody(['regions' => ['list']]);
-    unset($body['region']);
+it('carries a server screen\'s chrome in its part', function () {
+    $response = $this->asgard(['protocol' => 1, 'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '7']])->assertOk();
 
-    $response = $this->asgard($body)->assertOk();
-
-    expect(array_keys($response->json('fragments')))->toBe(['list']);
+    expect(array_keys($response->json('fragments')))->toBe(['screen'])
+        ->and(array_keys($response->json('fragments.screen')))->toBe(['version', 'made_at', 'fragment', 'chrome']);
 });
 
-it('carries a server screen\'s chrome in its batch part', function () {
-    $body = ['protocol' => 1, 'component' => 'promos.show', 'regions' => ['screen'], 'state' => ['id' => '7']];
-
-    $batch = $this->asgard($body)->assertOk();
-    $single = $this->asgard([...array_diff_key($body, ['regions' => 1]), 'region' => 'screen'])->assertOk();
-
-    expect($batch->json('fragments.screen.chrome'))->toBe($single->json('chrome'))
-        ->and($batch->json('fragments.screen.fragment'))->toBe($single->json('fragment'));
-});
-
-it('refuses a malformed batch', function (array $overrides, string $message) {
-    $body = array_merge(asgardBody(), $overrides);
-    unset($body['region']);
-    $body = array_merge($body, array_intersect_key($overrides, ['region' => 1]));
-
+it('refuses a malformed regions list', function (array $body, string $message) {
     $this->asgard($body, 'QUERY', [], 'render')
         ->assertStatus(422)
+        ->assertJsonPath('error', 'invalid_request')
         ->assertJsonPath('message', $message);
 })->with([
-    'empty' => [['regions' => []], 'regions must be a list of 1 to 16 region names.'],
-    'not a list' => [['regions' => ['a' => 'greeting']], 'regions must be a list of 1 to 16 region names.'],
-    'too many' => [['regions' => array_map(fn ($i) => "r{$i}", range(1, 17))], 'regions must be a list of 1 to 16 region names.'],
-    'a bad name' => [['regions' => ['greeting', 'no spaces']], 'regions[1] must be a region name.'],
-    'a repeat' => [['regions' => ['greeting', 'greeting']], 'regions must not repeat a name.'],
-    'with region' => [['regions' => ['greeting'], 'region' => 'greeting'], 'Send region or regions, not both.'],
-    'with an action' => [['regions' => ['greeting'], 'action' => ['call' => 'shuffle', 'args' => []]], 'An action names one region, not regions.'],
+    'missing' => [fn () => array_diff_key(asgardBody(), ['regions' => 1]), 'regions must be a list of at least one region name.'],
+    'empty' => [fn () => asgardBody(['regions' => []]), 'regions must be a list of at least one region name.'],
+    'not a list' => [fn () => asgardBody(['regions' => ['a' => 'greeting']]), 'regions must be a list of at least one region name.'],
+    'a bad name' => [fn () => asgardBody(['regions' => ['greeting', 'no spaces']]), 'regions[1] must be a region name.'],
+    'a repeat' => [fn () => asgardBody(['regions' => ['greeting', 'greeting']]), 'regions must not repeat a name.'],
+    'the old region field' => [fn () => [...array_diff_key(asgardBody(), ['regions' => 1]), 'region' => 'greeting'], 'region is not a field. Send regions, a list even for one region.'],
+    'region beside regions' => [fn () => asgardBody(['region' => 'greeting']), 'region is not a field. Send regions, a list even for one region.'],
+    'an action with two regions' => [fn () => asgardBody(['regions' => ['greeting', 'list'], 'action' => ['call' => 'shuffle', 'args' => []]]), 'A request with an action names exactly one region in regions.'],
 ]);
 
-it('refuses a batch with any unknown region with the usual 404', function () {
-    $body = asgardBody(['regions' => ['greeting', 'nope']]);
-    unset($body['region']);
-
-    $this->asgard($body)->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
+it('refuses a request with any unknown region with the usual 404', function () {
+    $this->asgard(asgardBody(['regions' => ['greeting', 'nope']]))->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
 });
 
 it('checks sixteen names before it looks them up', function () {
-    $body = asgardBody(['regions' => array_map(fn ($i) => "r{$i}", range(1, 16))]);
-    unset($body['region']);
+    $this->asgard(asgardBody(['regions' => array_map(fn ($i) => "r{$i}", range(1, 16))]))
+        ->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
+});
 
-    $this->asgard($body)->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
+it('answers a request over the limit with too_many_regions and renders nothing', function () {
+    $this->asgard(asgardBody(['regions' => array_map(fn ($i) => "r{$i}", range(1, 17))]))
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'too_many_regions');
+
+    // Over the limit even when every name is real.
+    config()->set('asgard.max_regions', 2);
+
+    $this->asgard(asgardBody(['regions' => ['greeting', 'list', 'tags']]))
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'too_many_regions')
+        ->assertJsonMissingPath('fragments');
+
+    $this->asgard(asgardBody(['regions' => ['greeting', 'list']]))->assertOk();
 });

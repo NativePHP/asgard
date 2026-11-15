@@ -70,7 +70,7 @@ it('refuses a computed method as a server method or an action', function () {
         ->assertExactJson(['error' => 'unknown_method']);
 
     $this->asgard([
-        'protocol' => 1, 'component' => 'app.native.screens.computed', 'region' => 'summary', 'state' => [],
+        'protocol' => 1, 'component' => 'app.native.screens.computed', 'regions' => ['summary'], 'state' => [],
         'action' => ['call' => 'total', 'args' => []],
     ])->assertNotFound()->assertExactJson(['error' => 'unknown_action']);
 
@@ -78,9 +78,9 @@ it('refuses a computed method as a server method or an action', function () {
 });
 
 it('lets a region call a computed method like any other', function () {
-    $this->asgard(['protocol' => 1, 'component' => 'app.native.screens.computed', 'region' => 'summary', 'state' => ['items' => [2, 3]]])
+    $this->asgard(['protocol' => 1, 'component' => 'app.native.screens.computed', 'regions' => ['summary'], 'state' => ['items' => [2, 3]]])
         ->assertOk()
-        ->assertJsonPath('fragment.props.text', 'Total 5');
+        ->assertJsonPath('fragments.summary.fragment.props.text', 'Total 5');
 });
 
 it('adds computed values to an upload answer', function () {

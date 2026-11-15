@@ -140,15 +140,15 @@ it('refuses bad chrome media URLs', function (array $chrome) {
 it('resolves against the request host when rendering', function () {
     Asgard::component('app.native.screens.bad', BadFragments::class);
 
-    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'image', 'state' => ['src' => '/storage/promo.jpg']]))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['image'], 'state' => ['src' => '/storage/promo.jpg']]))
         ->assertOk()
-        ->assertJsonPath('fragment.props.src', 'http://localhost/storage/promo.jpg');
+        ->assertJsonPath('fragments.image.fragment.props.src', 'http://localhost/storage/promo.jpg');
 });
 
 it('answers a bad media URL like any invalid fragment', function () {
     Asgard::component('app.native.screens.bad', BadFragments::class);
 
-    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'image', 'state' => ['src' => 'javascript:alert(1)']]))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['image'], 'state' => ['src' => 'javascript:alert(1)']]))
         ->assertStatus(500)
         ->assertJsonPath('error', 'invalid_fragment');
 });

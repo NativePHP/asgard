@@ -10,20 +10,23 @@ use Native\Asgard\Tests\Fixtures\HomeScreen;
 it('renders a region over QUERY', function () {
     $response = $this->asgard(asgardBody())->assertOk();
 
-    expect($response->json('version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
+    expect($response->json('fragments.greeting.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
     $response->assertExactJson([
         'protocol' => 1,
-        'version' => $response->json('version'),
-        'made_at' => $response->json('made_at'),
-        'region' => 'greeting',
-        'fragment' => [
-            'type' => 'column',
-            'class' => 'p-4 gap-2',
-            'children' => [
-                ['type' => 'text', 'key' => 'hello', 'props' => ['text' => 'Hello, Simon']],
-                ['type' => 'text', 'props' => ['text' => 'Role: guest']],
-                ['type' => 'text', 'props' => ['text' => 'Count: 0']],
-                ['type' => 'text', 'props' => ['text' => 'Platform: ios']],
+        'fragments' => [
+            'greeting' => [
+                'version' => $response->json('fragments.greeting.version'),
+                'made_at' => $response->json('fragments.greeting.made_at'),
+                'fragment' => [
+                    'type' => 'column',
+                    'class' => 'p-4 gap-2',
+                    'children' => [
+                        ['type' => 'text', 'key' => 'hello', 'props' => ['text' => 'Hello, Simon']],
+                        ['type' => 'text', 'props' => ['text' => 'Role: guest']],
+                        ['type' => 'text', 'props' => ['text' => 'Count: 0']],
+                        ['type' => 'text', 'props' => ['text' => 'Platform: ios']],
+                    ],
+                ],
             ],
         ],
     ]);
@@ -32,32 +35,32 @@ it('renders a region over QUERY', function () {
 it('renders a region over POST with the method header', function () {
     $this->asgard(asgardBody(['state' => ['name' => 'Simon', 'platform' => 'android']]), 'POST', ['X-Asgard-Method' => 'QUERY'])
         ->assertOk()
-        ->assertJsonPath('fragment.children.0.props.text', 'Hello, Simon')
-        ->assertJsonPath('fragment.children.3.props.text', 'Platform: android');
+        ->assertJsonPath('fragments.greeting.fragment.children.0.props.text', 'Hello, Simon')
+        ->assertJsonPath('fragments.greeting.fragment.children.3.props.text', 'Platform: android');
 });
 
 it('ignores a top-level platform from an older client', function () {
     $this->asgard(asgardBody(['platform' => 'web']))
         ->assertOk()
-        ->assertJsonPath('fragment.children.3.props.text', 'Platform: ios');
+        ->assertJsonPath('fragments.greeting.fragment.children.3.props.text', 'Platform: ios');
 });
 
 it('ignores state keys no property takes', function () {
     $this->asgard(asgardBody(['state' => ['name' => 'Ada', 'app_version' => '2.1.0', 'device' => ['model' => 'x']]]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.0.props.text', 'Hello, Ada')
-        ->assertJsonPath('fragment.children.3.props.text', 'Platform: ');
+        ->assertJsonPath('fragments.greeting.fragment.children.0.props.text', 'Hello, Ada')
+        ->assertJsonPath('fragments.greeting.fragment.children.3.props.text', 'Platform: ');
 });
 
 it('verifies a request that carries extra headers, and lets the app read them', function () {
     Asgard::component('app.native.screens.headers', HeaderScreen::class);
 
-    $this->asgard(asgardBody(['component' => 'app.native.screens.headers', 'region' => 'version']), 'QUERY', [
+    $this->asgard(asgardBody(['component' => 'app.native.screens.headers', 'regions' => ['version']]), 'QUERY', [
         'X-App-Version' => '2.1.0',
         'Accept-Language' => 'cy',
     ])
         ->assertOk()
-        ->assertJsonPath('fragment.props.text', '2.1.0 cy');
+        ->assertJsonPath('fragments.version.fragment.props.text', '2.1.0 cy');
 });
 
 it('sets no cookies', function () {
@@ -73,9 +76,9 @@ it('rejects POST without the method header', function () {
 });
 
 it('returns a list fragment when the region returns a list', function () {
-    $this->asgard(asgardBody(['region' => 'list']))
+    $this->asgard(asgardBody(['regions' => ['list']]))
         ->assertOk()
-        ->assertJsonPath('fragment', [
+        ->assertJsonPath('fragments.list.fragment', [
             ['type' => 'text', 'props' => ['text' => 'one']],
             ['type' => 'text', 'props' => ['text' => 'two']],
         ]);
@@ -83,7 +86,7 @@ it('returns a list fragment when the region returns a list', function () {
 
 it('gives identical 404s for an unknown component and an undeclared region', function () {
     $unknownComponent = $this->asgard(asgardBody(['component' => 'app.native.screens.nope']));
-    $unknownRegion = $this->asgard(asgardBody(['region' => 'nope']));
+    $unknownRegion = $this->asgard(asgardBody(['regions' => ['nope']]));
 
     $unknownComponent->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
     $unknownRegion->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
@@ -99,7 +102,7 @@ it('never treats the component string as a class name', function () {
 });
 
 it('does not reach public methods without a Region attribute', function (string $region) {
-    $this->asgard(asgardBody(['region' => $region]))
+    $this->asgard(asgardBody(['regions' => [$region]]))
         ->assertNotFound()
         ->assertExactJson(['error' => 'unknown_component']);
 
@@ -109,7 +112,7 @@ it('does not reach public methods without a Region attribute', function (string 
 it('does not hydrate Locked props', function () {
     $this->asgard(asgardBody(['state' => ['role' => 'admin']]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.1.props.text', 'Role: guest');
+        ->assertJsonPath('fragments.greeting.fragment.children.1.props.text', 'Role: guest');
 });
 
 it('rejects state that does not fit the property type', function (array $state) {
@@ -125,9 +128,9 @@ it('rejects state that does not fit the property type', function (array $state) 
 ]);
 
 it('accepts scalars, null and nested arrays that fit', function () {
-    $this->asgard(asgardBody(['region' => 'tags', 'state' => ['tags' => ['a', 1, true], 'ratio' => 2, 'count' => 3]]))
+    $this->asgard(asgardBody(['regions' => ['tags'], 'state' => ['tags' => ['a', 1, true], 'ratio' => 2, 'count' => 3]]))
         ->assertOk()
-        ->assertJsonCount(3, 'fragment.children');
+        ->assertJsonCount(3, 'fragments.tags.fragment.children');
 });
 
 it('ignores unknown state keys and logs them in debug', function () {
@@ -135,7 +138,7 @@ it('ignores unknown state keys and logs them in debug', function () {
 
     $this->asgard(asgardBody(['state' => ['name' => 'Simon', 'nope' => 1, 'untyped' => 'x', 'asgardRegion' => 'x', '__proto__' => 1]]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.0.props.text', 'Hello, Simon');
+        ->assertJsonPath('fragments.greeting.fragment.children.0.props.text', 'Hello, Simon');
 
     Log::shouldHaveReceived('debug')->once()->withArgs(fn ($message, $context) => $context['keys'] === ['nope', 'untyped', 'asgardRegion', '__proto__']);
 });
@@ -151,7 +154,13 @@ it('rejects malformed requests with 422', function (string $body) {
     'wrong protocol' => [json_encode(asgardBody(['protocol' => 2]))],
     'missing component' => [json_encode(asgardBody(['component' => null]))],
     'state is a list' => [json_encode(asgardBody(['state' => [1, 2]]))],
-    'bad region' => [json_encode(asgardBody(['region' => '../x']))],
+    'bad region' => [json_encode(asgardBody(['regions' => ['../x']]))],
+    'the old region field' => [json_encode([...array_diff_key(asgardBody(), ['regions' => 1]), 'region' => 'greeting'])],
+    'region beside regions' => [json_encode(asgardBody(['region' => 'greeting']))],
+    'no regions' => [json_encode(array_diff_key(asgardBody(), ['regions' => 1]))],
+    'regions is a string' => [json_encode(asgardBody(['regions' => 'greeting']))],
+    'empty regions' => [json_encode(asgardBody(['regions' => []]))],
+    'a repeated region' => [json_encode(asgardBody(['regions' => ['greeting', 'greeting']]))],
     'address segment starting with a digit' => [json_encode(asgardBody(['component' => 'app.2native.home']))],
     'address segment starting with an underscore' => [json_encode(asgardBody(['component' => '_app.home']))],
 ]);
@@ -159,7 +168,7 @@ it('rejects malformed requests with 422', function (string $body) {
 it('rejects denied fragment types', function (string $type) {
     Asgard::component('app.native.screens.bad', BadFragments::class);
 
-    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'denied', 'state' => ['type' => $type]]))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['denied'], 'state' => ['type' => $type]]))
         ->assertStatus(500)
         ->assertJsonPath('error', 'invalid_fragment')
         ->assertJsonPath('message', fn ($m) => str_contains($m, "[{$type}] is not allowed"));
@@ -168,21 +177,24 @@ it('rejects denied fragment types', function (string $type) {
 it('hides the fragment error message outside debug', function () {
     config()->set('app.debug', false);
 
-    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'garbage']))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['garbage']]))
         ->assertStatus(500)
         ->assertExactJson(['error' => 'invalid_fragment']);
 });
 
 it('strips internal prop keys', function () {
-    $response = $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'props']))->assertOk();
+    $response = $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['props']]))->assertOk();
 
-    expect($response->json('version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
+    expect($response->json('fragments.props.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
     $response->assertExactJson([
         'protocol' => 1,
-        'version' => $response->json('version'),
-        'made_at' => $response->json('made_at'),
-        'region' => 'props',
-        'fragment' => ['type' => 'button', 'props' => ['label' => 'Go'], 'on_press' => ['call' => 'go', 'args' => [1]]],
+        'fragments' => [
+            'props' => [
+                'version' => $response->json('fragments.props.version'),
+                'made_at' => $response->json('fragments.props.made_at'),
+                'fragment' => ['type' => 'button', 'props' => ['label' => 'Go'], 'on_press' => ['call' => 'go', 'args' => [1]]],
+            ],
+        ],
     ]);
 });
 

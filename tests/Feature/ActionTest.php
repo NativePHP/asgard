@@ -25,20 +25,23 @@ function actionBody(array $action, array $overrides = []): array
 it('runs a marked action and renders the region it changed', function () {
     $response = $this->asgard(actionBody(['call' => 'shuffle', 'args' => [3, '!']]))->assertOk();
 
-    expect($response->json('version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
+    expect($response->json('fragments.greeting.version'))->toMatch('/^[A-Za-z0-9_-]{16}$/');
     $response->assertExactJson([
         'protocol' => 1,
-        'version' => $response->json('version'),
-        'made_at' => $response->json('made_at'),
-        'region' => 'greeting',
-        'fragment' => [
-            'type' => 'column',
-            'class' => 'p-4 gap-2',
-            'children' => [
-                ['type' => 'text', 'key' => 'hello', 'props' => ['text' => 'Hello, Simon!']],
-                ['type' => 'text', 'props' => ['text' => 'Role: guest']],
-                ['type' => 'text', 'props' => ['text' => 'Count: 5']],
-                ['type' => 'text', 'props' => ['text' => 'Platform: ios']],
+        'fragments' => [
+            'greeting' => [
+                'version' => $response->json('fragments.greeting.version'),
+                'made_at' => $response->json('fragments.greeting.made_at'),
+                'fragment' => [
+                    'type' => 'column',
+                    'class' => 'p-4 gap-2',
+                    'children' => [
+                        ['type' => 'text', 'key' => 'hello', 'props' => ['text' => 'Hello, Simon!']],
+                        ['type' => 'text', 'props' => ['text' => 'Role: guest']],
+                        ['type' => 'text', 'props' => ['text' => 'Count: 5']],
+                        ['type' => 'text', 'props' => ['text' => 'Platform: ios']],
+                    ],
+                ],
             ],
         ],
     ]);
@@ -49,40 +52,40 @@ it('runs a marked action and renders the region it changed', function () {
 it('runs an action over POST with the method header', function () {
     $this->asgard(actionBody(['call' => 'shuffle', 'args' => []]), 'POST', ['X-Asgard-Method' => 'QUERY'])
         ->assertOk()
-        ->assertJsonPath('fragment.children.2.props.text', 'Count: 3');
+        ->assertJsonPath('fragments.greeting.fragment.children.2.props.text', 'Count: 3');
 });
 
 it('accepts an explicit server target', function () {
     $this->asgard(actionBody(['call' => 'shuffle', 'args' => [1], 'target' => 'server']))
         ->assertOk()
-        ->assertJsonPath('fragment.children.2.props.text', 'Count: 3');
+        ->assertJsonPath('fragments.greeting.fragment.children.2.props.text', 'Count: 3');
 });
 
 it('keeps action changes to this request only', function () {
     $this->asgard(actionBody(['call' => 'shuffle', 'args' => [10]]))
         ->assertOk()
         ->assertJsonMissingPath('state')
-        ->assertJsonPath('fragment.children.2.props.text', 'Count: 12');
+        ->assertJsonPath('fragments.greeting.fragment.children.2.props.text', 'Count: 12');
 
     $this->asgard(asgardBody(['state' => ['count' => 2]]))
-        ->assertJsonPath('fragment.children.2.props.text', 'Count: 2');
+        ->assertJsonPath('fragments.greeting.fragment.children.2.props.text', 'Count: 2');
 });
 
 it('hydrates before the action and still keeps Locked props from the client', function () {
     $this->asgard(actionBody(['call' => 'shuffle', 'args' => []], ['state' => ['role' => 'admin', 'count' => 1]]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.1.props.text', 'Role: guest')
-        ->assertJsonPath('fragment.children.2.props.text', 'Count: 2');
+        ->assertJsonPath('fragments.greeting.fragment.children.1.props.text', 'Role: guest')
+        ->assertJsonPath('fragments.greeting.fragment.children.2.props.text', 'Count: 2');
 
     // The server itself may still change a Locked prop.
     $this->asgard(actionBody(['call' => 'promote', 'args' => []]))
-        ->assertJsonPath('fragment.children.1.props.text', 'Role: admin');
+        ->assertJsonPath('fragments.greeting.fragment.children.1.props.text', 'Role: admin');
 });
 
 it('passes args positionally to variadic and loosely typed params', function () {
     $this->asgard(actionBody(['call' => 'sum', 'args' => [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.2.props.text', 'Count: 136');
+        ->assertJsonPath('fragments.greeting.fragment.children.2.props.text', 'Count: 136');
 
     $this->asgard(actionBody(['call' => 'anything', 'args' => [['a' => [1]], 'x', 2, 'id']]))
         ->assertOk();
@@ -125,7 +128,7 @@ it('refuses methods that are not actions with one 404', function (string $call, 
 ]);
 
 it('refuses actions inherited from a parent class', function () {
-    $this->asgard(actionBody(['call' => 'inherited', 'args' => []], ['component' => 'app.native.screens.child', 'region' => 'count']))
+    $this->asgard(actionBody(['call' => 'inherited', 'args' => []], ['component' => 'app.native.screens.child', 'regions' => ['count']]))
         ->assertNotFound()
         ->assertExactJson(['error' => 'unknown_action']);
 
@@ -133,11 +136,11 @@ it('refuses actions inherited from a parent class', function () {
 });
 
 it('refuses unmarked trait methods but runs marked ones', function () {
-    $body = fn ($call) => actionBody(['call' => $call, 'args' => []], ['component' => 'app.native.screens.child', 'region' => 'count', 'state' => []]);
+    $body = fn ($call) => actionBody(['call' => $call, 'args' => []], ['component' => 'app.native.screens.child', 'regions' => ['count'], 'state' => []]);
 
     $this->asgard($body('fromTrait'))->assertNotFound()->assertExactJson(['error' => 'unknown_action']);
     $this->asgard($body('markedInTrait'))->assertOk();
-    $this->asgard($body('bump'))->assertOk()->assertJsonPath('fragment.props.text', 'Count: 1');
+    $this->asgard($body('bump'))->assertOk()->assertJsonPath('fragments.count.fragment.props.text', 'Count: 1');
 
     expect(ChildScreen::$calls)->toBe(['markedInTrait', 'bump']);
 });
@@ -150,7 +153,7 @@ it('only knows actions declared on the class itself', function () {
 });
 
 it('still needs a known region when running an action', function () {
-    $this->asgard(actionBody(['call' => 'shuffle', 'args' => []], ['region' => 'nope']))
+    $this->asgard(actionBody(['call' => 'shuffle', 'args' => []], ['regions' => ['nope']]))
         ->assertNotFound()
         ->assertExactJson(['error' => 'unknown_component']);
 
@@ -227,7 +230,7 @@ it('validates callbacks at build time', function (Closure $build) {
 ]);
 
 it('rejects callbacks in a fragment that are not the object shape', function (mixed $callback) {
-    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'callback', 'state' => ['callback' => $callback]]))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['callback'], 'state' => ['callback' => $callback]]))
         ->assertStatus(500)
         ->assertJsonPath('error', 'invalid_fragment');
 })->with([
@@ -248,9 +251,9 @@ it('rejects callbacks in a fragment that are not the object shape', function (mi
 ]);
 
 it('passes valid callback objects through a fragment', function (array $callback, array $expected) {
-    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'region' => 'callback', 'state' => ['callback' => $callback]]))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.bad', 'regions' => ['callback'], 'state' => ['callback' => $callback]]))
         ->assertOk()
-        ->assertJsonPath('fragment.on_press', $expected);
+        ->assertJsonPath('fragments.callback.fragment.on_press', $expected);
 })->with([
     'server' => [['call' => 'go', 'args' => [1, 'x']], ['call' => 'go', 'args' => [1, 'x']]],
     'explicit server is dropped' => [['call' => 'go', 'args' => [], 'target' => 'server'], ['call' => 'go', 'args' => []]],
@@ -262,6 +265,6 @@ it('refuses a component address or region with a trailing newline', function () 
         json_encode(['protocol' => 1, 'state' => [], ...$body]), 'POST', ['X-Asgard-Method' => 'QUERY'],
     );
 
-    $send(['component' => "app.native.screens.home\n", 'region' => 'greeting'])->assertStatus(422);
-    $send(['component' => 'app.native.screens.home', 'region' => "greeting\n"])->assertStatus(422);
+    $send(['component' => "app.native.screens.home\n", 'regions' => ['greeting']])->assertStatus(422);
+    $send(['component' => 'app.native.screens.home', 'regions' => ["greeting\n"]])->assertStatus(422);
 });

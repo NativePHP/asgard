@@ -86,7 +86,7 @@ it('sends ciphertext both ways and binds the response to its request', function 
         ->and($sealed['headers']['signature-input'])->toStartWith('asgard=("@method" "@authority" "@path" "content-type" "content-encoding" "content-digest" "asgard-protocol" "asgard-session-id");created=')
         ->and($response->headers->get('Content-Encoding'))->toBe('aes128gcm')
         ->and($response->headers->get('Signature-Input'))->toContain('"signature";req;key="asgard"')
-        ->and($response->json('fragment.children.0.props.text'))->toBe('Hello, Simon');
+        ->and($response->json('fragments.greeting.fragment.children.0.props.text'))->toBe('Hello, Simon');
 
     // The same raw response does not verify against any other request.
     $raw = $this->sendSealed($sealed);

@@ -32,7 +32,7 @@ function screenBody(array $overrides = []): array
     return array_merge([
         'protocol' => 1,
         'component' => 'promos.show',
-        'region' => 'screen',
+        'regions' => ['screen'],
         'state' => ['id' => '42'],
     ], $overrides);
 }
@@ -42,12 +42,12 @@ function screenBody(array $overrides = []): array
 it('renders a screen body and its chrome as separate parts', function () {
     $response = $this->asgard(screenBody())->assertOk();
 
-    expect($response->json('region'))->toBe('screen');
-    expect($response->json('fragment.children.0'))->toBe(['type' => 'text', 'key' => 'title', 'props' => ['text' => 'Promo 42']]);
-    expect($response->json('fragment.children.2.on_press'))->toBe(['navigate' => '/promos/43', 'transition' => 'fade']);
-    expect($response->json('fragment.children.3.on_press'))->toBe(['back' => true]);
+    expect(array_keys($response->json('fragments')))->toBe(['screen']);
+    expect($response->json('fragments.screen.fragment.children.0'))->toBe(['type' => 'text', 'key' => 'title', 'props' => ['text' => 'Promo 42']]);
+    expect($response->json('fragments.screen.fragment.children.2.on_press'))->toBe(['navigate' => '/promos/43', 'transition' => 'fade']);
+    expect($response->json('fragments.screen.fragment.children.3.on_press'))->toBe(['back' => true]);
 
-    expect($response->json('chrome'))->toBe([
+    expect($response->json('fragments.screen.chrome'))->toBe([
         'native' => true,
         'nav_bar' => [
             'title' => 'Promo #42',
@@ -75,13 +75,13 @@ it('sends an empty chrome object for a screen without chrome', function () {
 });
 
 it('sends no chrome for a plain component', function () {
-    expect($this->asgard(asgardBody())->assertOk()->json())->not->toHaveKey('chrome');
+    expect($this->asgard(asgardBody())->assertOk()->json('fragments.greeting'))->not->toHaveKey('chrome');
 });
 
 it('fills typed properties from route strings', function () {
     $this->asgard(screenBody(['state' => ['id' => '7', 'preview' => 'true', 'ref' => '12']]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.0.props.text', 'Promo 7');
+        ->assertJsonPath('fragments.screen.fragment.children.0.props.text', 'Promo 7');
 });
 
 it('refuses route strings that do not read as the property type', function (mixed $id) {
@@ -104,8 +104,8 @@ it('does not coerce state for a plain component', function () {
 it('runs a screen action and answers with body and chrome', function () {
     $this->asgard(screenBody(['action' => ['call' => 'like', 'args' => [5]]]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.1.props.text', 'Likes 5')
-        ->assertJsonPath('chrome.nav_bar.title', 'Promo #42');
+        ->assertJsonPath('fragments.screen.fragment.children.1.props.text', 'Likes 5')
+        ->assertJsonPath('fragments.screen.chrome.nav_bar.title', 'Promo #42');
 
     expect(PromoScreen::$calls)->toBe(['like', 'render']);
 });
@@ -117,7 +117,7 @@ it('never runs render or chrome as an action', function (string $call) {
 })->with(['render', 'chrome']);
 
 it('answers only the screen region for a screen', function () {
-    $this->asgard(screenBody(['region' => 'greeting']))->assertNotFound();
+    $this->asgard(screenBody(['regions' => ['greeting']]))->assertNotFound();
 });
 
 it('compresses a screen body unless its attribute says not to', function () {
@@ -370,7 +370,7 @@ it('refuses bad chrome', function (array $chrome) {
 it('renders a screen body and chrome views from Blade', function () {
     $response = $this->asgard(screenBody(['component' => 'blade_promos.show', 'state' => ['id' => '42']]))->assertOk();
 
-    expect($response->json('fragment'))->toBe([
+    expect($response->json('fragments.screen.fragment'))->toBe([
         'type' => 'column',
         'class' => 'p-4',
         'children' => [
@@ -382,7 +382,7 @@ it('renders a screen body and chrome views from Blade', function () {
         ],
     ]);
 
-    expect($response->json('chrome'))->toBe([
+    expect($response->json('fragments.screen.chrome'))->toBe([
         'native' => true,
         'nav_bar' => ['title' => 'Promo #42'],
         'bottom_bar' => [
@@ -399,7 +399,7 @@ it('runs an action on a Blade screen', function () {
         'component' => 'blade_promos.show', 'state' => ['id' => '1', 'likes' => 4], 'action' => ['call' => 'like', 'args' => []],
     ]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.1.props.text', 'Likes 5');
+        ->assertJsonPath('fragments.screen.fragment.children.1.props.text', 'Likes 5');
 });
 
 it('streams a Blade screen with its chrome', function () {
@@ -426,7 +426,7 @@ it('refuses chrome tags in a screen view, body or chrome', function (string $whe
 it('lets a screen body view through when only the chrome is plain', function () {
     $this->asgard(screenBody(['component' => 'native.asgard.tests.fixtures.top_bar_view_screen', 'state' => ['where' => 'ok']]))
         ->assertOk()
-        ->assertJsonPath('chrome.bottom_bar.type', 'row');
+        ->assertJsonPath('fragments.screen.chrome.bottom_bar.type', 'row');
 });
 
 it('renders chrome views given in the array form too', function () {

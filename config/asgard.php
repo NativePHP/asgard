@@ -135,6 +135,14 @@ return [
     ],
 
     /*
+    | The most regions one render request may name in `regions`. A request
+    | over it gets 422 too_many_regions and nothing in it is rendered. The
+    | client may split the regions across smaller requests. This stops one
+    | small request making the server do any amount of work.
+    */
+    'max_regions' => (int) env('ASGARD_MAX_REGIONS', 16),
+
+    /*
     | Region cache. A client that keeps copies of regions sends what it holds
     | in a `cache` member, and the server skips rendering a region whose copy
     | is still fresh. See "Region cache" in the README.

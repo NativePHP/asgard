@@ -384,36 +384,36 @@ it('copies the app\'s custom directives', function () {
 it('renders a Blade region to the same fragment as the equivalent Node tree', function () {
     $state = ['name' => 'Simon', 'count' => 3];
 
-    $blade = $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'region' => 'stats', 'state' => $state]))
+    $blade = $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'regions' => ['stats'], 'state' => $state]))
         ->assertOk();
-    $nodes = $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'region' => 'nodes', 'state' => $state]))
+    $nodes = $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'regions' => ['nodes'], 'state' => $state]))
         ->assertOk();
 
-    expect($blade->json('fragment'))->toBe($nodes->json('fragment'))
-        ->and($blade->json('fragment.children.4.on_press'))->toBe(['call' => 'bump', 'args' => [2]])
-        ->and($blade->json('fragment.children.5.on_press'))->toBe(['call' => 'celebrate', 'args' => ['Simon'], 'target' => 'client']);
+    expect($blade->json('fragments.stats.fragment'))->toBe($nodes->json('fragments.nodes.fragment'))
+        ->and($blade->json('fragments.stats.fragment.children.4.on_press'))->toBe(['call' => 'bump', 'args' => [2]])
+        ->and($blade->json('fragments.stats.fragment.children.5.on_press'))->toBe(['call' => 'celebrate', 'args' => ['Simon'], 'target' => 'client']);
 });
 
 it('runs a server action pressed in a Blade region', function () {
     $this->asgard(asgardBody([
-        'component' => 'app.native.screens.blade', 'region' => 'stats',
+        'component' => 'app.native.screens.blade', 'regions' => ['stats'],
         'state' => ['count' => 1], 'action' => ['call' => 'bump', 'args' => [2]],
     ]))
         ->assertOk()
-        ->assertJsonPath('fragment.children.1.props.text', 'Count: 3');
+        ->assertJsonPath('fragments.stats.fragment.children.1.props.text', 'Count: 3');
 });
 
 it('returns a list fragment from a Blade view with several roots', function () {
-    $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'region' => 'many']))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'regions' => ['many']]))
         ->assertOk()
-        ->assertJsonPath('fragment', [
+        ->assertJsonPath('fragments.many.fragment', [
             ['type' => 'text', 'props' => ['text' => 'one']],
             ['type' => 'button', 'props' => ['label' => 'two'], 'on_press' => ['call' => 'bump', 'args' => []]],
         ]);
 });
 
 it('answers invalid_fragment for chrome in a Blade region', function () {
-    $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'region' => 'chrome']))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.blade', 'regions' => ['chrome']]))
         ->assertStatus(500)
         ->assertJsonPath('error', 'invalid_fragment');
 });

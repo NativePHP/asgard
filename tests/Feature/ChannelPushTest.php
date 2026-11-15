@@ -82,9 +82,9 @@ it('renders a shared region as a guest on the stream, and with the user on rende
     expect(auth()->id())->toBe(5);
 
     // Render is not the stream: it renders with the user, as always.
-    $this->asgard(asgardBody(['component' => 'app.native.screens.channel', 'region' => 'viewer', 'state' => ['promo' => 42]]))
+    $this->asgard(asgardBody(['component' => 'app.native.screens.channel', 'regions' => ['viewer'], 'state' => ['promo' => 42]]))
         ->assertOk()
-        ->assertJsonPath('fragment.props.text', 'Viewer 5 / 5 of promo 42');
+        ->assertJsonPath('fragments.viewer.fragment.props.text', 'Viewer 5 / 5 of promo 42');
 
     // A region that is not shared is only signalled, so it never renders on the stream.
     $events = sseEvents($this->asgardStream(channelBody(['regions' => ['title']]))->streamedContent());
