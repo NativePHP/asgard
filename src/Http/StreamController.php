@@ -79,6 +79,13 @@ class StreamController
      */
     public const PING_SECONDS = 5;
 
+    /**
+     * Times are float seconds, so a poll that lands exactly on a tick or on
+     * the end of the lifetime can read a hair short of it. Within this many
+     * milliseconds counts as there.
+     */
+    protected const MARGIN_MS = 0.001;
+
     public function __construct(
         protected ComponentRegistry $registry,
         protected Container $container,
@@ -401,16 +408,24 @@ class StreamController
             $this->send($secure, $eventId, $id, $region, $version, $answer, ComponentMetadata::for($subscriptions[$id]['class'])->compresses($region));
         }
 
+        // Polls run on a fixed schedule, at start + n * poll_ms, so the work
+        // a poll does comes out of the sleep before the next one instead of
+        // adding to it.
+        $tick = 0;
+
         while (! $this->clock->aborted()) {
-            $remaining = $lifetime - ($this->clock->now() - $start);
-            if ($remaining <= 0) {
+            $elapsed = ($this->clock->now() - $start) * 1000;
+            $remaining = $lifetime * 1000 - $elapsed;
+            if ($remaining <= self::MARGIN_MS) {
                 return;
             }
 
-            $this->clock->sleep((int) min($poll, ceil($remaining * 1000)));
+            $tick = self::nextTick($tick, $elapsed, $poll);
+
+            $this->clock->sleep((int) max(1, min(ceil($tick * $poll - $elapsed - self::MARGIN_MS), ceil($remaining - self::MARGIN_MS))));
 
             $now = $this->clock->now();
-            if ($this->clock->aborted() || $now - $start >= $lifetime) {
+            if ($this->clock->aborted() || ($now - $start) * 1000 >= $lifetime * 1000 - self::MARGIN_MS) {
                 return;
             }
 
@@ -626,6 +641,16 @@ class StreamController
         $data = Wire::sealEvent($secure->keys, $secure->session, $secure->signature, $id, 'patch', $plaintext, null, $compress);
 
         $this->write("id: {$id}\nevent: patch\ndata: {$data}\n\n");
+    }
+
+    /**
+     * The next poll's tick, counted in poll_ms from the stream's start. A
+     * poll that ran over one or more ticks skips to the next one still
+     * ahead rather than polling again at once to catch up.
+     */
+    protected static function nextTick(int $tick, float $elapsedMs, int $pollMs): int
+    {
+        return max($tick + 1, intdiv((int) floor($elapsedMs + self::MARGIN_MS), $pollMs) + 1);
     }
 
     /**

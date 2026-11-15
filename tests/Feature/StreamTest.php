@@ -356,6 +356,42 @@ it('does not sleep past the lifetime', function () {
     expect($this->clock->time)->toBe(1001.0);
 });
 
+it('polls on a fixed schedule, taking the work time out of the sleep', function () {
+    // A poll that takes 200ms of work, after the first sleep.
+    $this->clock->onSleep[1] = fn () => $this->clock->time += 0.2;
+
+    $this->asgardStream(streamBody())->streamedContent();
+
+    expect($this->clock->durations)->toBe([500, 300, 500, 500, 500, 500])
+        ->and($this->clock->time)->toBe(1003.0);
+});
+
+it('skips to the next tick after a poll that overran, without a burst', function () {
+    // Work runs from 1001.0 to 1002.2, past the ticks at 1001.5 and 1002.0.
+    $this->clock->onSleep[2] = fn () => $this->clock->time += 1.2;
+
+    $this->asgardStream(streamBody())->streamedContent();
+
+    expect($this->clock->durations)->toBe([500, 500, 300, 500])
+        ->and($this->clock->time)->toBe(1003.0);
+});
+
+it('keeps a fast poll on schedule', function () {
+    config()->set('asgard.stream.lifetime', 1);
+    config()->set('asgard.stream.poll_ms', 16);
+    foreach (range(1, 61) as $sleep) {
+        $this->clock->onSleep[$sleep] = fn () => $this->clock->time += 0.01;
+    }
+
+    $this->asgardStream(streamBody())->streamedContent();
+
+    // A poll every 16ms with 10ms of work in each, then the last 8ms of the lifetime.
+    expect($this->clock->sleeps)->toBe(63)
+        ->and(array_slice($this->clock->durations, 1, 61))->each->toBe(6)
+        ->and(end($this->clock->durations))->toBe(8)
+        ->and(round($this->clock->time, 6))->toBe(1001.0);
+});
+
 it('ends the stream when the client disconnects', function () {
     config()->set('asgard.stream.lifetime', 300);
     $this->clock->abortAfter = 4;

@@ -12,6 +12,9 @@ class FakeClock extends StreamClock
 
     public int $sleeps = 0;
 
+    /** @var list<int> milliseconds asked for by each sleep() */
+    public array $durations = [];
+
     /** @var array<int, Closure> sleep number => hook run after that sleep */
     public array $onSleep = [];
 
@@ -25,6 +28,7 @@ class FakeClock extends StreamClock
     public function sleep(int $milliseconds): void
     {
         $this->sleeps++;
+        $this->durations[] = $milliseconds;
         $this->time += $milliseconds / 1000;
 
         if (isset($this->onSleep[$this->sleeps])) {

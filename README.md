@@ -866,7 +866,7 @@ Config, under `asgard.stream`:
 | --- | --- | --- |
 | `store` | `null` (default cache store) | Cache store for push counters, channel counters included. `ASGARD_STREAM_STORE`. |
 | `lifetime` | `300` | Seconds before the server closes a stream. The client reconnects. `ASGARD_STREAM_LIFETIME`. |
-| `poll_ms` | `500` | How often each stream reads the push store. `ASGARD_STREAM_POLL_MS`. |
+| `poll_ms` | `500` | How often each stream reads the push store. Polls run on a fixed schedule, so the work a poll does comes out of the wait before the next. A poll that runs long skips to the next tick. `ASGARD_STREAM_POLL_MS`. |
 | `patch_log` | `256` | Patches kept per region counter for streams to send on (see "Patches"). 0 turns patches into signals. `ASGARD_STREAM_PATCH_LOG`. |
 
 ### Patches

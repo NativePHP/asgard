@@ -84,7 +84,8 @@ return [
     |           null means the default cache store.
     | lifetime: seconds before the server closes a stream. The client
     |           reconnects and hears about whatever changed meanwhile.
-    | poll_ms:  how often each stream reads the push store.
+    | poll_ms:  how often each stream reads the push store, on a fixed
+    |           schedule from the stream's start.
     | patch_log: how many patches (Asgard::patch()) the push store keeps per
     |           region counter, for up to 60 seconds. A stream that falls
     |           further behind than this signals the region instead. 0
