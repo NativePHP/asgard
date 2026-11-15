@@ -8,7 +8,7 @@ namespace Native\Asgard\Blade;
  *
  * On the device this list comes from the app's ElementRegistry. The server
  * has no registry, so this is a copy: nativephp/mobile's core elements plus
- * every component in nativephp/mobile-ui's nativephp.json (66 types, as of
+ * every component in nativephp/mobile-ui's nativephp.json (67 types, as of
  * November 2026). Add plugin types with `asgard.blade.elements`.
  *
  * Screen chrome (top_bar, bottom_nav...) is on the list on purpose. A bare
@@ -36,7 +36,7 @@ final class Elements
         'accordion', 'accordion_content', 'accordion_header', 'activity_indicator',
         'background_layer', 'badge', 'bare_text_input', 'bottom_sheet', 'button',
         'button_group', 'carousel', 'checkbox', 'chip', 'date_picker', 'emoji_picker',
-        'filled_text_input', 'floating_overlay', 'horizontal_divider', 'lazy_grid',
+        'filled_text_input', 'floating_overlay', 'horizontal_divider', 'lazy_grid', 'lazy_stack',
         'list', 'list_item', 'list_placeholder', 'list_section', 'modal', 'native_drawer',
         'outlined_text_input', 'pager', 'pager_header', 'pager_overlay', 'popover',
         'progress_bar', 'radio', 'radio_group', 'select', 'sheet_pane', 'slider',
