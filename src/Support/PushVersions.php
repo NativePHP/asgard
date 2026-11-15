@@ -28,6 +28,17 @@ use Native\Asgard\Security\Base64Url;
  *
  * Streams compare with !==, never <, so a counter that is evicted or reset
  * still counts as a change.
+ *
+ * Region counters (the two with a #{region}) also keep a short patch log,
+ * one entry per bump, keyed by the counter's value after it:
+ *
+ *     asgard:patch:{counter key without asgard:push:}@{value}
+ *
+ * A patch's entry holds the patch, already rendered to JSON, and the
+ * element types in it. Any other bump of a region counter leaves a
+ * `plain` entry, so a stream knows straight away that it cannot patch past
+ * it. The log keeps the newest `patch_log` entries of each counter, each
+ * for at most PATCH_TTL seconds.
  */
 class PushVersions
 {
@@ -35,27 +46,90 @@ class PushVersions
 
     public const SHARED_PREFIX = 'asgard:shared:';
 
+    public const PATCH_PREFIX = 'asgard:patch:';
+
     /** Seconds a shared region's rendered answer is kept for other streams. */
     public const SHARED_TTL = 60;
 
+    /** Seconds a patch log entry is kept. */
+    public const PATCH_TTL = 60;
+
+    /**
+     * @param  int  $patchLog  entries kept per region counter. 0 keeps none,
+     *                         so every patch reaches devices as a signal.
+     */
     public function __construct(
         protected CacheFactory $cache,
         protected ?string $store = null,
+        protected int $patchLog = 256,
     ) {}
 
     public function bump(string $address, ?string $region = null): void
     {
-        $this->increment($region === null ? self::componentKey($address) : self::regionKey($address, $region));
+        if ($region === null) {
+            $this->increment(self::componentKey($address));
+
+            return;
+        }
+
+        $this->bumpPlain(self::regionKey($address, $region));
     }
 
     /** Bump a channel's counter, or one for a component or region in it. */
     public function bumpChannel(string $channel, ?string $address = null, ?string $region = null): void
     {
-        $this->increment(match (true) {
-            $address === null => self::channelKey($channel),
-            $region === null => self::channelComponentKey($channel, $address),
-            default => self::channelRegionKey($channel, $address, $region),
-        });
+        match (true) {
+            $address === null => $this->increment(self::channelKey($channel)),
+            $region === null => $this->increment(self::channelComponentKey($channel, $address)),
+            default => $this->bumpPlain(self::channelRegionKey($channel, $address, $region)),
+        };
+    }
+
+    /**
+     * Bump region counters (regionKey() or channelRegionKey()) for one
+     * patch, logging it against each one's new value.
+     *
+     * @param  list<string>  $keys
+     * @param  array{patch: string, types: list<string>}  $entry  the patch's JSON and its element types
+     */
+    public function patch(array $keys, array $entry): void
+    {
+        $repository = $this->repository();
+
+        foreach ($keys as $key) {
+            $value = $this->increment($key);
+
+            if ($this->patchLog > 0) {
+                $repository->put(self::logKey($key, $value), $entry, self::PATCH_TTL);
+
+                if ($value > $this->patchLog) {
+                    $repository->forget(self::logKey($key, $value - $this->patchLog));
+                }
+            }
+        }
+    }
+
+    /** How many entries each region counter's log keeps. */
+    public function patchLog(): int
+    {
+        return $this->patchLog;
+    }
+
+    /**
+     * Log entries by their keys (logKey()), in one many() call. A missing
+     * entry is null.
+     *
+     * @param  list<string>  $keys
+     * @return array<string, array{patch?: string, types?: list<string>, plain?: true}|null>
+     */
+    public function entries(array $keys): array
+    {
+        return $this->repository()->many($keys);
+    }
+
+    public static function logKey(string $counter, int $value): string
+    {
+        return self::PATCH_PREFIX.substr($counter, strlen(self::PREFIX)).'@'.$value;
     }
 
     /**
@@ -225,15 +299,30 @@ class PushVersions
         return $value;
     }
 
-    protected function increment(string $key): void
+    /** A region counter bump that is not a patch, marked in its log. */
+    protected function bumpPlain(string $key): void
+    {
+        $value = $this->increment($key);
+
+        if ($this->patchLog > 0) {
+            $this->repository()->put(self::logKey($key, $value), ['plain' => true], self::PATCH_TTL);
+        }
+    }
+
+    /** The counter's value after the bump. */
+    protected function increment(string $key): int
     {
         $repository = $this->repository();
 
         // Some stores (database) refuse to increment a missing key.
-        if ($repository->increment($key) === false) {
+        $value = $repository->increment($key);
+
+        if ($value === false) {
             $repository->add($key, 0);
-            $repository->increment($key);
+            $value = $repository->increment($key);
         }
+
+        return (int) $value;
     }
 
     protected function repository(): Repository

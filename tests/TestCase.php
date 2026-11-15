@@ -19,6 +19,7 @@ use Native\Asgard\Tests\Fixtures\ChannelScreen;
 use Native\Asgard\Tests\Fixtures\ChildScreen;
 use Native\Asgard\Tests\Fixtures\ComputedScreen;
 use Native\Asgard\Tests\Fixtures\CounterScreen;
+use Native\Asgard\Tests\Fixtures\FeedScreen;
 use Native\Asgard\Tests\Fixtures\HomeScreen;
 use Native\Asgard\Tests\Fixtures\PromoScreen;
 use Native\Asgard\Tests\Fixtures\RowsScreen;
@@ -87,6 +88,8 @@ abstract class TestCase extends BaseTestCase
         ComputedScreen::$mode = null;
         ComputedScreen::$totals = 0;
         CacheScreen::reset();
+        FeedScreen::$items = ['a', 'b'];
+        FeedScreen::$liked = [];
 
         parent::tearDown();
     }

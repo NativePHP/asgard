@@ -6,7 +6,7 @@ use InvalidArgumentException;
 use Native\Asgard\Support\PushVersions;
 
 /**
- * A push aimed at some channels, from Asgard::to(). Only stream
+ * A push or patch aimed at some channels, from Asgard::to(). Only stream
  * subscriptions that joined one of the channels re-render, and each
  * re-renders with its own state and its stream's user, as with any push.
  */
@@ -47,6 +47,24 @@ class PendingPush
                 $this->versions->bumpChannel($channel, $address, $region);
             }
         }
+    }
+
+    /**
+     * A patch (see Asgard::patch()) that only reaches subscriptions in
+     * these channels.
+     */
+    public function patch(string $component, ?string $region = null): PendingPatch
+    {
+        [$addresses, $region, $class] = $this->asgard->patchTarget($component, $region);
+
+        $counters = [];
+        foreach ($this->channels as $channel) {
+            foreach ($addresses as $address) {
+                $counters[] = PushVersions::channelRegionKey($channel, $address, $region);
+            }
+        }
+
+        return new PendingPatch($this->versions, $counters, $class, $region);
     }
 
     /** @return list<string> */

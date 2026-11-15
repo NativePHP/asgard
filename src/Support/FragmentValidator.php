@@ -40,12 +40,17 @@ final class FragmentValidator
     public const MAX_DEPTH = 64;
 
     /**
-     * @param  list<string>  $elements  the extra types the client advertised
+     * @param  list<string>|null  $elements  the extra types the client advertised. Null
+     *                                       allows any type but NEVER_TYPES, for a patch
+     *                                       built before any client is known. Each stream
+     *                                       then checks its types (unknownTypes()).
      * @return array<string, mixed>|list<array<string, mixed>> one node, or a list of nodes
      */
-    public static function validate(mixed $fragment, array $elements = []): array
+    public static function validate(mixed $fragment, ?array $elements = []): array
     {
-        $allowed = array_fill_keys(array_diff([...self::CORE_TYPES, ...$elements], self::NEVER_TYPES), true);
+        $allowed = $elements === null
+            ? null
+            : array_fill_keys(array_diff([...self::CORE_TYPES, ...$elements], self::NEVER_TYPES), true);
 
         if ($fragment instanceof Node) {
             return self::node($fragment->toArray(), 'fragment', 1, $allowed);
@@ -63,10 +68,42 @@ final class FragmentValidator
     }
 
     /**
-     * @param  array<string, true>  $allowed
+     * Every element type in some validated nodes, once each.
+     *
+     * @param  list<array<string, mixed>>  $nodes
+     * @return list<string>
+     */
+    public static function types(array $nodes): array
+    {
+        $types = [];
+        $walk = function (array $nodes) use (&$walk, &$types): void {
+            foreach ($nodes as $node) {
+                $types[$node['type']] = true;
+                $walk($node['children'] ?? []);
+            }
+        };
+        $walk($nodes);
+
+        return array_keys($types);
+    }
+
+    /**
+     * The types in $types that a client advertising $elements cannot draw.
+     *
+     * @param  list<string>  $types
+     * @param  list<string>  $elements
+     * @return list<string>
+     */
+    public static function unknownTypes(array $types, array $elements): array
+    {
+        return array_values(array_diff($types, self::CORE_TYPES, $elements));
+    }
+
+    /**
+     * @param  array<string, true>|null  $allowed  null allows any type but NEVER_TYPES
      * @return array<string, mixed>
      */
-    private static function node(mixed $node, string $path, int $depth, array $allowed): array
+    private static function node(mixed $node, string $path, int $depth, ?array $allowed): array
     {
         if ($depth > self::MAX_DEPTH) {
             throw new InvalidFragment("{$path}: fragment is nested deeper than ".self::MAX_DEPTH.' levels.');
@@ -87,7 +124,7 @@ final class FragmentValidator
         if (in_array($type, self::NEVER_TYPES, true)) {
             throw new InvalidFragment("{$path}: element type [{$type}] is not allowed in a fragment. Regions cannot contain screen chrome or other regions.");
         }
-        if (! isset($allowed[$type])) {
+        if ($allowed !== null && ! isset($allowed[$type])) {
             throw new InvalidFragment("{$path}: element type [{$type}] is not a core type and the client did not list it in elements.");
         }
 

@@ -867,6 +867,72 @@ Config, under `asgard.stream`:
 | `store` | `null` (default cache store) | Cache store for push counters, channel counters included. `ASGARD_STREAM_STORE`. |
 | `lifetime` | `300` | Seconds before the server closes a stream. The client reconnects. `ASGARD_STREAM_LIFETIME`. |
 | `poll_ms` | `500` | How often each stream reads the push store. `ASGARD_STREAM_POLL_MS`. |
+| `patch_log` | `256` | Patches kept per region counter for streams to send on (see "Patches"). 0 turns patches into signals. `ASGARD_STREAM_PATCH_LOG`. |
+
+### Patches
+
+A push makes every device fetch the whole region again, or sends the whole
+fragment for a shared region. When all that changed is a few items added to a
+long list, that is a lot of work for little. A patch sends only the change.
+
+```php
+Asgard::patch(Firehose::class, 'feed')->prepend($node, into: 'items', keep: 1000);
+Asgard::patch(Firehose::class, 'feed')->prepend([$a, $b], into: 'items');
+Asgard::patch(Firehose::class, 'feed')->append($node, into: 'items', keep: 500);
+Asgard::patch(Firehose::class, 'feed')->remove(into: 'items', keys: [42, 43]);
+
+Asgard::to('promo.1')->patch(PromoScreen::class)->prepend($node, into: 'items');
+```
+
+`into` is the `key` of a node in the region, set with `->key('items')` or
+`key="items"` in a Blade region. The device changes that node's children:
+
+- `prepend` puts the nodes before its first child and `append` after its
+  last. With `keep`, the device then keeps that many children at most,
+  dropping from the far end.
+- `remove` drops the children with those keys. Keys it does not have are
+  ignored.
+
+The nodes may be a `Node`, an array node, a list of them or a Blade region
+view. A view renders on a fresh component with no state, so pass it what it
+needs. They are checked exactly like a fragment's nodes: media URLs are made
+absolute, callbacks are checked and a tap on a patched node calls its method
+as usual. A bad node throws `InvalidFragment` when you call the method,
+before anything is sent. A patch takes 1 to 100 nodes, a remove 1 to 1,000
+keys, and `keep` is 1 to 100,000. Anything else throws
+`InvalidArgumentException`.
+
+The region can be left out for a server screen or a component with only one
+region. Each call is one patch and bumps the region's version as
+`Asgard::push($component, $region)` does. `Asgard::to()` sends the patch only
+to subscriptions in those channels.
+
+**You must change the data too.** A patch only changes what devices already
+have on screen. A device that opens the region later, reconnects, or misses
+a patch fetches the whole region and gets whatever your region method
+renders. So save the new item first, then patch, and make sure a full render
+shows the same list the patches build: the same order, the same keys and the
+same `keep` limit.
+
+Each patch is rendered once, when you call it, and kept in the push store's
+patch log for up to 60 seconds. Every stream wraps it and seals it for its own
+session. When a stream polls, it sends one `patch` event per patch since its
+last event, in order. Nothing is merged. With `poll_ms` at 16 and 60 patches a
+second, that is about one patch a poll.
+
+A stream falls back to the usual signal (or fragment, for a shared region)
+whenever it cannot be sure the patches tell the whole story:
+
+- a plain push to the region, its component or a channel it is in landed
+  between them;
+- it is further behind than the log keeps (`patch_log`), or an entry expired;
+- a patch to everyone and a channel patch landed in the same poll, so their
+  order is unknown;
+- a patch uses an element type its client did not advertise.
+
+On connect a device that is behind gets a signal, never a replay. The device
+also fetches the region when a patch's `from` is not the version it holds,
+so a lost patch can never leave a wrong list on screen.
 
 ## Sessions and security
 
@@ -1219,6 +1285,13 @@ verifies on the stream it was sent on.
   region through render unless it already holds that version.
 - The event is `fragment` for a shared region, with the fragment (and chrome)
   in the body.
+- The event is `patch` for a region changed by `Asgard::patch()`, when the
+  stream can send every patch since its last event (see "Patches"). Its body is
+  `{"protocol":1,"subscription":…,"region":…,"from":…,"version":…,"patch":{"op":"prepend","target":"items","nodes":[…],"keep":1000}}`,
+  or `{"op":"append",…}` or `{"op":"remove","target":"items","keys":["42"]}`.
+  `from` is the version before the patch and `version` the one after. It is
+  compressed when the region compresses and signed with `patch` as the event
+  name. A device that does not hold `from` fetches the region instead.
 - `: ping` every 5 seconds. PHP only notices a gone client when it writes, so
   this is also how soon a dead connection gives its worker back.
 - `id` is the sum of the push counters the stream watches, so it only goes

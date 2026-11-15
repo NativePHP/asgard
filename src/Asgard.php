@@ -10,7 +10,7 @@ use Native\Asgard\Support\PushVersions;
 
 /**
  * What the Asgard facade points at: the component and screen registries,
- * plus push() and to().
+ * plus push(), patch() and to().
  */
 class Asgard
 {
@@ -68,6 +68,55 @@ class Asgard
         foreach ($this->addresses($component, $region) as $address) {
             $this->versions->bump($address, $region);
         }
+    }
+
+    /**
+     * Change one list inside a region on every open stream watching it,
+     * without re-sending the region:
+     *
+     *     Asgard::patch(Firehose::class, 'feed')->prepend($node, into: 'items', keep: 1000);
+     *
+     * Each operation is sent at once, as one patch, and bumps the region's
+     * version as push() does. The region may be left out for a server
+     * screen or a component with one region. Asgard::to()->patch() sends
+     * to some channels only.
+     */
+    public function patch(string $component, ?string $region = null): PendingPatch
+    {
+        [$addresses, $region, $class] = $this->patchTarget($component, $region);
+
+        return new PendingPatch(
+            $this->versions,
+            array_map(fn (string $address) => PushVersions::regionKey($address, $region), $addresses),
+            $class,
+            $region,
+        );
+    }
+
+    /**
+     * The addresses, region and class a patch reaches, checked as push()
+     * checks them. Without a region, the component must have just one.
+     *
+     * @internal
+     *
+     * @return array{list<string>, string, class-string<ServerComponent>}
+     */
+    public function patchTarget(string $component, ?string $region): array
+    {
+        $addresses = $this->addresses($component);
+        $components = $this->registry->all();
+
+        if ($region === null) {
+            $regions = array_keys(ComponentMetadata::for($components[$addresses[0]])->regions);
+
+            if (count($regions) !== 1) {
+                throw new InvalidArgumentException("A patch for [{$components[$addresses[0]]}] needs a region: it has ".count($regions).'.');
+            }
+
+            $region = (string) $regions[0];
+        }
+
+        return [$this->addresses($component, $region), $region, $components[$addresses[0]]];
     }
 
     /**

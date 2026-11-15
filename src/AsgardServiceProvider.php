@@ -42,6 +42,7 @@ class AsgardServiceProvider extends ServiceProvider
         $this->app->singleton(PushVersions::class, fn ($app) => new PushVersions(
             $app['cache'],
             $app['config']->get('asgard.stream.store'),
+            max(0, (int) $app['config']->get('asgard.stream.patch_log', 256)),
         ));
 
         $this->app->singleton(SessionStore::class, fn ($app) => new SessionStore(

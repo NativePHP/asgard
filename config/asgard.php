@@ -85,11 +85,16 @@ return [
     | lifetime: seconds before the server closes a stream. The client
     |           reconnects and hears about whatever changed meanwhile.
     | poll_ms:  how often each stream reads the push store.
+    | patch_log: how many patches (Asgard::patch()) the push store keeps per
+    |           region counter, for up to 60 seconds. A stream that falls
+    |           further behind than this signals the region instead. 0
+    |           keeps none, so every patch arrives as a signal.
     */
     'stream' => [
         'store' => env('ASGARD_STREAM_STORE'),
         'lifetime' => (int) env('ASGARD_STREAM_LIFETIME', 300),
         'poll_ms' => (int) env('ASGARD_STREAM_POLL_MS', 500),
+        'patch_log' => (int) env('ASGARD_STREAM_PATCH_LOG', 256),
     ],
 
     /*

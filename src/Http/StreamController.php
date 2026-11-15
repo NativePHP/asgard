@@ -42,6 +42,13 @@ use Throwable;
  * guest once per state and version and reused by every stream through the
  * push store.
  *
+ * A region moved by Asgard::patch() gets one `patch` event per patch
+ * instead, with the version before and after it, when the push store's
+ * patch log covers every step since the last event and nothing else moved
+ * it. Otherwise it gets the signal or fragment as above. On connect a
+ * device behind the current version always gets the signal or fragment,
+ * never a replay of patches.
+ *
  * Each subscription joins the channels its component's channels() names,
  * worked out once from its own state and the request's user. One poll
  * reads every counter of every subscription in one many() call.
@@ -373,6 +380,13 @@ class StreamController
     {
         $lifetime = max(1, (int) config('asgard.stream.lifetime', 300));
         $poll = max(10, (int) config('asgard.stream.poll_ms', 500));
+        $cap = $this->versions->patchLog();
+
+        // Per subscription and region, a log entry found missing on the last
+        // poll. A patch's counter is bumped just before its entry is
+        // written, so a poll can land between the two. One poll later a
+        // missing entry really is gone.
+        $waiting = [];
 
         if (PHP_SAPI !== 'cli' && function_exists('set_time_limit')) {
             @set_time_limit($lifetime + 30);
@@ -411,6 +425,10 @@ class StreamController
 
             $eventId = self::eventId($current);
 
+            // First every region that moved, and the log entries that could
+            // carry it as patches, so they are all read in one many() call.
+            $moved = [];
+            $wanted = [];
             foreach ($subscriptions as $id => $subscription) {
                 $componentChanged = $current[$id]['component'] !== $seen[$id]['component'];
 
@@ -419,29 +437,195 @@ class StreamController
                         continue;
                     }
 
-                    $version = PushVersions::token($subscription['component'], $region, $subscription['channels'], $current[$id]);
-
-                    try {
-                        $answer = $this->shared($subscription, $region, $version, $secure->elements);
-                    } catch (Throwable $e) {
-                        // Headers are long gone, so there is no error response to
-                        // give. Report it and leave the device on its last fragment.
-                        report($e);
-
-                        continue;
+                    $steps = $componentChanged ? null : $this->patchSteps($subscription, $region, $seen[$id]['regions'][$region], $current[$id]['regions'][$region], $cap);
+                    if ($steps !== null) {
+                        array_push($wanted, ...$steps['keys']);
                     }
 
-                    $this->send($secure, $eventId, $id, $region, $version, $answer, ComponentMetadata::for($subscription['class'])->compresses($region));
+                    $moved[] = [$id, $region, $steps];
                 }
             }
 
-            $seen = $current;
+            try {
+                $log = $wanted === [] ? [] : $this->versions->entries($wanted);
+            } catch (Throwable $e) {
+                report($e);
+
+                return;
+            }
+
+            $next = $current;
+
+            foreach ($moved as [$id, $region, $steps]) {
+                $subscription = $subscriptions[$id];
+                $compress = ComponentMetadata::for($subscription['class'])->compresses($region);
+
+                if ($steps !== null) {
+                    $sent = $this->sendPatches($secure, $eventId, $id, $region, $subscription, $current[$id], $seen[$id]['regions'][$region], $steps, $log, $waiting, $compress);
+
+                    if ($sent !== null) {
+                        $next[$id]['regions'][$region] = $sent;
+
+                        continue;
+                    }
+                }
+
+                unset($waiting[$id][$region]);
+
+                $version = PushVersions::token($subscription['component'], $region, $subscription['channels'], $current[$id]);
+
+                try {
+                    $answer = $this->shared($subscription, $region, $version, $secure->elements);
+                } catch (Throwable $e) {
+                    // Headers are long gone, so there is no error response to
+                    // give. Report it and leave the device on its last fragment.
+                    report($e);
+
+                    continue;
+                }
+
+                $this->send($secure, $eventId, $id, $region, $version, $answer, $compress);
+            }
+
+            $seen = $next;
 
             if ($now - $lastPing >= self::PING_SECONDS) {
                 $this->write(": ping\n\n");
                 $lastPing = $now;
             }
         }
+    }
+
+    /**
+     * Whether a region's move could be patches: exactly one of its counters
+     * moved, forward, by no more than the log keeps. Then the counter's
+     * index in the region's list and the log keys for each step. Null means
+     * signal or send the fragment, as for any push.
+     *
+     * Two counters moving at once (a patch to everyone and one to a channel,
+     * say) gives no order between their entries, so that falls back too.
+     *
+     * @param  array{component: string, regions: list<string>, channels: list<string>}  $subscription
+     * @param  list<int>  $before
+     * @param  list<int>  $after
+     * @return array{index: int, keys: list<string>}|null
+     */
+    protected function patchSteps(array $subscription, string $region, array $before, array $after, int $cap): ?array
+    {
+        if ($cap < 1 || count($before) !== count($after)) {
+            return null;
+        }
+
+        $index = null;
+        foreach ($after as $i => $value) {
+            if ($value !== $before[$i]) {
+                if ($index !== null) {
+                    return null;
+                }
+                $index = $i;
+            }
+        }
+
+        if ($index === null || $after[$index] <= $before[$index] || $cap < $after[$index] - $before[$index]) {
+            return null;
+        }
+
+        $counter = $index === 0
+            ? PushVersions::regionKey($subscription['component'], $region)
+            : PushVersions::channelRegionKey($subscription['channels'][$index - 1], $subscription['component'], $region);
+
+        $keys = [];
+        for ($value = $before[$index] + 1; $value <= $after[$index]; $value++) {
+            $keys[] = PushVersions::logKey($counter, $value);
+        }
+
+        return ['index' => $index, 'keys' => $keys];
+    }
+
+    /**
+     * Send a region's move as one `patch` event per log entry, in order.
+     * Gives the region's counters as far as they were sent, or null to fall
+     * back to a signal or fragment: a plain push among the steps, an entry
+     * that is gone, or a patch with an element type this client did not
+     * advertise. Nothing is sent before a fall back is known.
+     *
+     * Missing entries at the end only hold the region back for one poll
+     * (see $waiting), sending the ones before them.
+     *
+     * @param  array{component: string, channels: list<string>}  $subscription
+     * @param  array{component: list<int>, regions: array<string, list<int>>}  $current
+     * @param  list<int>  $before
+     * @param  array{index: int, keys: list<string>}  $steps
+     * @param  array<string, mixed>  $log
+     * @param  array<string, array<string, int>>  $waiting
+     * @return list<int>|null
+     */
+    protected function sendPatches(SecureRequest $secure, string $eventId, string $id, string $region, array $subscription, array $current, array $before, array $steps, array $log, array &$waiting, bool $compress): ?array
+    {
+        $index = $steps['index'];
+        $entries = [];
+
+        foreach ($steps['keys'] as $step => $key) {
+            $entry = $log[$key] ?? null;
+            $value = $before[$index] + $step + 1;
+
+            if ($entry === null) {
+                $rest = array_slice($steps['keys'], $step);
+                $allMissing = array_filter($rest, fn ($k) => ($log[$k] ?? null) !== null) === [];
+
+                if (! $allMissing || ($waiting[$id][$region] ?? null) === $value) {
+                    return null;
+                }
+
+                $waiting[$id][$region] = $value;
+
+                break;
+            }
+
+            if (! is_array($entry) || ! is_string($entry['patch'] ?? null)
+                || FragmentValidator::unknownTypes((array) ($entry['types'] ?? []), $secure->elements) !== []) {
+                return null;
+            }
+
+            $entries[] = $entry['patch'];
+
+            if (($waiting[$id][$region] ?? null) === $value) {
+                unset($waiting[$id][$region]);
+            }
+        }
+
+        $counters = $before;
+        $snapshot = ['component' => $current['component'], 'regions' => [$region => $counters]];
+        $from = PushVersions::token($subscription['component'], $region, $subscription['channels'], $snapshot);
+
+        foreach ($entries as $patch) {
+            $snapshot['regions'][$region][$index]++;
+            $version = PushVersions::token($subscription['component'], $region, $subscription['channels'], $snapshot);
+
+            $this->sendPatch($secure, $eventId, $id, $region, $from, $version, $patch, $compress);
+
+            $from = $version;
+        }
+
+        return $snapshot['regions'][$region];
+    }
+
+    /**
+     * A `patch` event. The patch is JSON already, rendered once at push
+     * time, so it is spliced in rather than decoded and encoded again.
+     */
+    protected function sendPatch(SecureRequest $secure, string $id, string $subscription, string $region, string $from, string $version, string $patch, bool $compress): void
+    {
+        $head = json_encode(
+            ['protocol' => self::PROTOCOL, 'subscription' => $subscription, 'region' => $region, 'from' => $from, 'version' => $version],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+        );
+
+        $plaintext = substr($head, 0, -1).',"patch":'.$patch.'}';
+
+        $data = Wire::sealEvent($secure->keys, $secure->session, $secure->signature, $id, 'patch', $plaintext, null, $compress);
+
+        $this->write("id: {$id}\nevent: patch\ndata: {$data}\n\n");
     }
 
     /**
