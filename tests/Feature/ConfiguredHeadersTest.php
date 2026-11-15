@@ -33,7 +33,7 @@ it('adds the headers to the handshake', function () {
     [, $public] = Ecdh::generate();
 
     $response = $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
-        'key' => TestCase::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+        'key' => TestCase::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
     ]))->assertOk();
 
     expectConfiguredHeaders($response);
@@ -73,8 +73,10 @@ it('adds the headers to errors, sealed or plain', function () {
     expectConfiguredHeaders($this->asgard(asgardBody(['component' => 'nope']))->assertNotFound());
     expectConfiguredHeaders($this->asgard(asgardBody(['regions' => [5]]))->assertStatus(422));
 
-    // Plain 419, 403 and 405s.
-    expectConfiguredHeaders($this->call('QUERY', '/_asgard/render', [], [], [], ['CONTENT_TYPE' => 'application/json'], '{}')->assertStatus(419));
+    // Plain 422, 415, 419, 403 and 405s.
+    expectConfiguredHeaders($this->call('QUERY', '/_asgard/render', [], [], [], ['CONTENT_TYPE' => 'application/json'], '{}')->assertStatus(422));
+    expectConfiguredHeaders($this->call('QUERY', '/_asgard/render', [], [], [], ['CONTENT_TYPE' => 'application/json', 'HTTP_ASGARD_PROTOCOL' => '1'], '{}')->assertStatus(415));
+    expectConfiguredHeaders($this->call('QUERY', '/_asgard/render', [], [], [], envelope(['CONTENT_TYPE' => 'application/json']), '{}')->assertStatus(419));
     expectConfiguredHeaders($this->asgard(asgardBody(), 'QUERY', [], 'render', ['tamper' => function ($sealed) {
         $sealed['body'] .= 'x';
 

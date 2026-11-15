@@ -1,0 +1,9 @@
+providers:
+  - Native\Asgard\AsgardServiceProvider
+  - Workbench\App\ConformanceServiceProvider
+
+env:
+  - APP_KEY=base64:N2p6dXZ0d2p0b2xlcnN0dW5qZGZrYWJqZGZrYWJqZGY=
+  - APP_DEBUG=true
+  - ASGARD_KEY=conformance-key
+  - CACHE_STORE=file

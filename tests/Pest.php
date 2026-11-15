@@ -5,6 +5,15 @@ use Native\Asgard\Tests\TestCase;
 
 uses(TestCase::class)->in(__DIR__);
 
+/**
+ * The two headers checked before anything else (Asgard protocol §7.6), for
+ * requests a test builds by hand rather than sealing.
+ */
+function envelope(array $server = []): array
+{
+    return ['HTTP_ASGARD_PROTOCOL' => '1', 'HTTP_CONTENT_ENCODING' => 'aes128gcm'] + $server;
+}
+
 function asgardBody(array $overrides = []): array
 {
     return array_merge([

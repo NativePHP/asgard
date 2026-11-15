@@ -252,13 +252,13 @@ it('renders the regions an upload names', function () {
         ->assertJsonPath('fragments.stats.fragment.props.text', 'Stats 11');
 });
 
-it('refuses a call or upload that names an unknown region, before the method runs', function () {
+it('refuses a call or upload that names an unknown region with 404, before the method runs', function () {
     $this->asgard(stateCall(overrides: ['regions' => ['stats', 'nope']]), 'QUERY', [], 'call')
-        ->assertStatus(422)
-        ->assertExactJson(['error' => 'invalid_request', 'message' => 'regions names [nope], which is not a region of this component.']);
+        ->assertNotFound()
+        ->assertExactJson(['error' => 'unknown_component']);
 
     $this->asgard(stateUpload(['regions' => ['nope']]), 'QUERY', [], 'upload')
-        ->assertStatus(422)->assertJsonPath('error', 'invalid_request');
+        ->assertNotFound()->assertExactJson(['error' => 'unknown_component']);
 
     expect(StateScreen::$calls)->toBe([]);
 });

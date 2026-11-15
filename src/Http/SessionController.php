@@ -20,6 +20,9 @@ class SessionController
 {
     public const PROTOCOL = 1;
 
+    /** Every version this server speaks, for unsupported_protocol answers. */
+    public const PROTOCOLS = [self::PROTOCOL];
+
     public const ENCODING = 'tree/json';
 
     /** At most this many extra element types in `elements`. */
@@ -47,8 +50,15 @@ class SessionController
             return $this->error(403, 'unknown_key', 'This server does not know that Asgard key.');
         }
 
-        if (($body['protocol'] ?? null) !== self::PROTOCOL) {
-            return response()->json(['error' => 'unsupported_protocol', 'protocols' => [self::PROTOCOL]], 422);
+        $offered = $body['protocols'] ?? null;
+        if (! is_array($offered) || ! array_is_list($offered) || $offered === [] || count($offered) > 16
+            || count(array_unique($offered, SORT_REGULAR)) !== count($offered)
+            || array_filter($offered, fn ($v) => ! is_int($v) || $v < 1) !== []) {
+            return $this->error(422, 'invalid_request', 'protocols must be a list of 1 to 16 distinct positive integers.');
+        }
+
+        if (! in_array(self::PROTOCOL, $offered, true)) {
+            return response()->json(['error' => 'unsupported_protocol', 'protocols' => self::PROTOCOLS], 422);
         }
 
         $accepts = $body['accepts'] ?? null;
@@ -71,11 +81,12 @@ class SessionController
             return $this->error(422, 'invalid_request', 'client_public must be an uncompressed P-256 point in base64url.');
         }
 
-        $session = $this->sessions->create(SessionKeys::secret($shared, $clientPublic, $serverPublic), $elements);
+        $session = $this->sessions->create(SessionKeys::secret($shared, $clientPublic, $serverPublic), $elements, self::PROTOCOL);
 
         return response()->json([
             'session' => $session,
             'server_public' => Base64Url::encode($serverPublic),
+            'protocol' => self::PROTOCOL,
             'expires_in' => $this->sessions->lifetime(),
             'encoding' => self::ENCODING,
         ]);

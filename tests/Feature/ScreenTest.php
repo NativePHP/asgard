@@ -198,7 +198,7 @@ it('serves the route list sealed, with a version', function () {
 });
 
 it('refuses an unsigned route list request', function () {
-    $this->call('POST', '/_asgard/routes', [], [], [], ['HTTP_X_ASGARD_METHOD' => 'QUERY'], '{"protocol":1}')
+    $this->call('POST', '/_asgard/routes', [], [], [], envelope(['HTTP_X_ASGARD_METHOD' => 'QUERY']), '{"protocol":1}')
         ->assertStatus(419);
 });
 

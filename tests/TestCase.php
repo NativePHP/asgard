@@ -109,7 +109,7 @@ abstract class TestCase extends BaseTestCase
         [$private, $public] = Ecdh::generate();
 
         $response = $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
-            'key' => self::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+            'key' => self::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
             ...($elements === null ? [] : ['elements' => $elements]),
         ]))->assertOk();
 

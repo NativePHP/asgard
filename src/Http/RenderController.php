@@ -60,12 +60,6 @@ class RenderController
             return $this->error(422, 'invalid_request', $e->getMessage());
         }
 
-        // An action is not a safe request, so its signature must carry a
-        // nonce (§7.3). The middleware has already refused a repeated one.
-        if ($payload['action'] !== null && $this->secure($request)->nonce === null) {
-            return response()->json(['error' => 'nonce_required'], 403);
-        }
-
         // Plain array lookups only. The wire strings never name a class or method.
         $class = $this->registry->resolve($payload['component']);
         $metadata = $class ? ComponentMetadata::for($class) : null;

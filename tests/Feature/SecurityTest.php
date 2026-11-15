@@ -20,7 +20,7 @@ function handshakeBody(array $overrides = []): string
     [, $public] = Ecdh::generate();
 
     return json_encode(array_merge([
-        'key' => TestCase::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+        'key' => TestCase::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
     ], $overrides));
 }
 
@@ -38,10 +38,11 @@ it('agrees a session without the secret crossing the wire', function () {
     [$private, $public] = Ecdh::generate();
 
     $response = $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode([
-        'key' => TestCase::KEY, 'protocol' => 1, 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
+        'key' => TestCase::KEY, 'protocols' => [1], 'accepts' => ['tree/json'], 'client_public' => Base64Url::encode($public),
     ]))->assertOk();
 
-    expect(array_keys($response->json()))->toBe(['session', 'server_public', 'expires_in', 'encoding'])
+    expect(array_keys($response->json()))->toBe(['session', 'server_public', 'protocol', 'expires_in', 'encoding'])
+        ->and($response->json('protocol'))->toBe(1)
         ->and($response->json('expires_in'))->toBe(1800)
         ->and($response->json('encoding'))->toBe('tree/json')
         ->and(strlen(Base64Url::decode($response->json('server_public'))))->toBe(65);
@@ -68,7 +69,9 @@ it('refuses a bad handshake', function (array $overrides, string $error) {
     $this->call('POST', '/_asgard/session', [], [], [], ['CONTENT_TYPE' => 'application/json'], handshakeBody($overrides))
         ->assertStatus(422)->assertJsonPath('error', $error);
 })->with([
-    'other protocol' => [['protocol' => 2], 'unsupported_protocol'],
+    'other protocol' => [['protocols' => [2]], 'unsupported_protocol'],
+    'protocols not a list' => [['protocols' => 1], 'invalid_request'],
+    'protocols repeated' => [['protocols' => [1, 1]], 'invalid_request'],
     'no tree/json' => [['accepts' => ['tree/flat']], 'unsupported_encoding'],
     'no public key' => [['client_public' => null], 'invalid_request'],
     'not base64url' => [['client_public' => 'a+b/'], 'invalid_request'],
@@ -156,7 +159,7 @@ it('refuses a tampered request with 403 and never runs it', function (Closure $t
         return $s;
     }],
     'covered header changed' => [function ($s) {
-        $s['headers']['asgard-protocol'] = '2';
+        $s['headers']['content-type'] = 'text/plain';
 
         return $s;
     }],
@@ -165,11 +168,53 @@ it('refuses a tampered request with 403 and never runs it', function (Closure $t
 
         return $s;
     }],
-    'not encrypted' => [function ($s) {
-        $s['headers']['content-encoding'] = 'identity';
+]);
 
-        return $s;
-    }],
+it('refuses a missing or unknown Asgard-Protocol with the plain 422 before anything else', function (?string $version) {
+    $response = $this->asgard(asgardBody(), 'QUERY', [], 'render', ['tamper' => function ($s) use ($version) {
+        $s['headers']['asgard-protocol'] = $version;
+        $s['headers']['asgard-session-id'] = 'AAAAAAAAAAAAAAAAAAAAAAAA';
+
+        return array_merge($s, ['headers' => array_filter($s['headers'], fn ($v) => $v !== null)]);
+    }]);
+
+    $response->assertStatus(422)->assertJsonPath('error', 'unsupported_protocol')->assertJsonPath('protocols', [1]);
+    expect($response->headers->has('Signature'))->toBeFalse()
+        ->and(HomeScreen::$calls)->toBe([]);
+})->with([
+    'missing' => [null],
+    'unknown' => ['2'],
+    'not a decimal integer' => ['01'],
+]);
+
+it('refuses a request whose Asgard-Protocol is not its session\'s, even when signed', function () {
+    $session = $this->handshake();
+    $key = SessionStore::PREFIX.$session['id'];
+    Cache::put($key, ['protocol' => 2] + Cache::get($key), 60);
+
+    $response = $this->asgard(asgardBody())
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'unsupported_protocol');
+
+    expect($response->headers->has('Signature'))->toBeFalse()
+        ->and(HomeScreen::$calls)->toBe([]);
+});
+
+it('refuses a request that is not aes128gcm with the plain 415, even when signed', function (?string $coding) {
+    $response = $this->asgard(asgardBody(), 'QUERY', [], 'render', ['tamper' => function ($s) use ($coding) {
+        $s['headers']['content-encoding'] = $coding;
+
+        return array_merge($s, ['headers' => array_filter($s['headers'], fn ($v) => $v !== null)]);
+    }]);
+
+    $response->assertStatus(415)->assertJsonPath('error', 'unsupported_coding')
+        ->assertHeader('Accept-Encoding', 'aes128gcm');
+    expect($response->headers->has('Signature'))->toBeFalse()
+        ->and(HomeScreen::$calls)->toBe([]);
+})->with([
+    'gzip' => ['gzip'],
+    'identity' => ['identity'],
+    'missing' => [null],
 ]);
 
 it('refuses a request whose signature has expired or is from the future', function () {
@@ -227,6 +272,23 @@ it('refuses an action without a nonce', function () {
 
     expect(HomeScreen::$calls)->toBe([]);
 });
+
+it('refuses a read that carries a nonce with a sealed 422, and still spends the nonce', function (string $endpoint, array $body) {
+    $nonce = Base64Url::encode(random_bytes(16));
+
+    $response = $this->asgard($body, 'QUERY', [], $endpoint, ['nonce' => $nonce, 'tamper' => capture($sealed)])
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'invalid_request');
+
+    expect($response->headers->has('Signature'))->toBeTrue()
+        ->and(HomeScreen::$calls)->toBe([]);
+
+    $this->sendSealed($sealed, 'QUERY', $endpoint)->assertForbidden();
+})->with([
+    'render' => ['render', asgardBody()],
+    'routes' => ['routes', ['protocol' => 1]],
+    'stream' => ['stream', streamBody()],
+]);
 
 it('keeps nonces per session', function () {
     $nonce = Base64Url::encode(random_bytes(16));
@@ -297,7 +359,7 @@ it('refuses a POST without X-Asgard-Method before the upload size check', functi
     config(['asgard.uploads.max_size' => '1K']);
     $tooBig = (string) (LimitUploadSize::limit(1024) + 1);
 
-    $this->call('QUERY', '/_asgard/upload', [], [], [], ['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => $tooBig], 'x')
+    $this->call('QUERY', '/_asgard/upload', [], [], [], envelope(['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => $tooBig]), 'x')
         ->assertStatus(413);
 
     $this->call('POST', '/_asgard/upload', [], [], [], ['CONTENT_TYPE' => 'application/json', 'CONTENT_LENGTH' => $tooBig], 'x')

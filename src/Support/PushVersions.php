@@ -246,8 +246,9 @@ class PushVersions
      * A shared region's answer, rendered by the first stream that needs it
      * and kept for SHARED_TTL seconds so every other stream reuses it. The
      * key holds everything the answer depends on: address, region,
-     * canonical state, version and the element types the client
-     * advertised, which decide what a fragment may use. No user, which is
+     * canonical state (RFC 8785, Asgard protocol §5.1), version and the
+     * element types the client advertised, which decide what a fragment
+     * may use. No user, which is
      * why a shared region renders as a guest.
      *
      * The state is the whole object the client sent, keys no property takes
@@ -266,8 +267,8 @@ class PushVersions
         sort($elements, SORT_STRING);
 
         $key = self::SHARED_PREFIX.hash('sha256', json_encode(
-            [$address, $region, self::canonical($state), $version, $elements],
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
+            [$address, $region, CanonicalState::encode($state), $version, $elements],
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
         ));
 
         $repository = $this->repository();
@@ -281,22 +282,6 @@ class PushVersions
         $repository->put($key, $answer, self::SHARED_TTL);
 
         return $answer;
-    }
-
-    /** Objects with sorted keys, all the way down, so equal state gives one key. */
-    public static function canonical(mixed $value): mixed
-    {
-        if (! is_array($value)) {
-            return $value;
-        }
-
-        $value = array_map(self::canonical(...), $value);
-
-        if (! array_is_list($value)) {
-            ksort($value, SORT_STRING);
-        }
-
-        return $value;
     }
 
     /** A region counter bump that is not a patch, marked in its log. */

@@ -176,7 +176,7 @@ it('runs a call once per nonce and refuses the replay', function () {
 });
 
 it('refuses an unsealed call', function () {
-    $this->call('QUERY', '/_asgard/call', [], [], [], ['CONTENT_TYPE' => 'application/json'], json_encode(callBody()))
+    $this->call('QUERY', '/_asgard/call', [], [], [], envelope(['CONTENT_TYPE' => 'application/json']), json_encode(callBody()))
         ->assertStatus(419);
 
     expect(ServerMethodScreen::$calls)->toBe([]);

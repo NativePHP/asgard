@@ -35,17 +35,13 @@ trait ReadsAsgardRequests
     public const MAX_CACHE_TTL = 31_536_000;
 
     /**
-     * Protocol header, JSON object body and protocol 1.
+     * A JSON object body with protocol 1. RequireProtocolAndCoding has
+     * already checked the Asgard-Protocol header.
      *
      * @return array<string, mixed>
      */
     protected function body(Request $request): array
     {
-        $header = $request->headers->get('Asgard-Protocol');
-        if ($header !== null && $header !== (string) self::PROTOCOL) {
-            throw new InvalidRequest('Unsupported Asgard-Protocol header.');
-        }
-
         try {
             $body = json_decode($this->secure($request)->body, true, 64, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {

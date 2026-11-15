@@ -29,7 +29,8 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "Native\\Asgard\\Tests\\": "tests"
+            "Native\\Asgard\\Tests\\": "tests",
+            "Workbench\\App\\": "workbench/app/"
         }
     },
     "extra": {

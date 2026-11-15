@@ -5,6 +5,7 @@ use Native\Asgard\Http\CallController;
 use Native\Asgard\Http\MethodNotAllowed;
 use Native\Asgard\Http\Middleware\AddConfiguredHeaders;
 use Native\Asgard\Http\Middleware\LimitUploadSize;
+use Native\Asgard\Http\Middleware\RequireProtocolAndCoding;
 use Native\Asgard\Http\Middleware\RequireQuery;
 use Native\Asgard\Http\Middleware\SealAsgardMessages;
 use Native\Asgard\Http\RenderController;
@@ -34,19 +35,20 @@ Route::match([...$refused, 'QUERY'], $prefix.'/session', MethodNotAllowed::class
 
 // Signature checks run first, so the app's middleware (bearer auth, say)
 // only ever sees a request that is known to be intact. Calls and uploads
-// are unsafe, so their signature must carry a nonce.
+// are unsafe, so their signature must carry a nonce. Streams and the route
+// list are reads, so theirs must not. A render is either, by its body.
 $endpoints = [
-    'render' => [RenderController::class, [SealAsgardMessages::class]],
-    'call' => [CallController::class, [SealAsgardMessages::class.':nonce']],
+    'render' => [RenderController::class, [SealAsgardMessages::class.':render']],
+    'call' => [CallController::class, [SealAsgardMessages::class.':unsafe']],
     // The size is checked before the body is hashed or decrypted.
-    'upload' => [UploadController::class, [LimitUploadSize::class, SealAsgardMessages::class.':nonce']],
-    'stream' => [StreamController::class, [SealAsgardMessages::class]],
-    'routes' => [RoutesController::class, [SealAsgardMessages::class]],
+    'upload' => [UploadController::class, [LimitUploadSize::class, SealAsgardMessages::class.':unsafe']],
+    'stream' => [StreamController::class, [SealAsgardMessages::class.':read']],
+    'routes' => [RoutesController::class, [SealAsgardMessages::class.':read']],
 ];
 
 foreach ($endpoints as $name => [$controller, $checks]) {
     Route::match(['QUERY', 'POST'], $prefix.'/'.$name, $controller)
-        ->middleware([AddConfiguredHeaders::class, RequireQuery::class, ...$checks, ...$middleware])
+        ->middleware([AddConfiguredHeaders::class, RequireQuery::class, RequireProtocolAndCoding::class, ...$checks, ...$middleware])
         ->name('asgard.'.$name);
 
     Route::match($refused, $prefix.'/'.$name, MethodNotAllowed::class)
