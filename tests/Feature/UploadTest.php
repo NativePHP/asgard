@@ -167,10 +167,10 @@ it('refuses a body too big for the cap before it is decrypted', function () {
     $session = $this->handshake();
 
     // Garbage, not even sealed: the size alone is enough to say no.
-    $this->call('QUERY', '/_asgard/upload', [], [], [], [
+    $this->call('QUERY', '/_asgard/upload', [], [], [], envelope([
         'CONTENT_TYPE' => 'application/json',
         'HTTP_ASGARD_SESSION_ID' => $session['id'],
-    ], str_repeat('x', LimitUploadSize::limit(1024) + 1))
+    ]), str_repeat('x', LimitUploadSize::limit(1024) + 1))
         ->assertStatus(413)
         ->assertExactJson(['error' => 'too_large', 'message' => 'The upload is larger than this server takes.']);
 });
@@ -178,10 +178,10 @@ it('refuses a body too big for the cap before it is decrypted', function () {
 it('refuses a Content-Length over the cap before reading anything', function () {
     config()->set('asgard.uploads.max_size', 1024);
 
-    $this->call('QUERY', '/_asgard/upload', [], [], [], [
+    $this->call('QUERY', '/_asgard/upload', [], [], [], envelope([
         'CONTENT_TYPE' => 'application/json',
         'CONTENT_LENGTH' => (string) (LimitUploadSize::limit(1024) + 1),
-    ], 'x')->assertStatus(413);
+    ]), 'x')->assertStatus(413);
 });
 
 it('leaves room for a whole file at the cap', function () {
@@ -323,7 +323,7 @@ it('runs an upload once per nonce and refuses the replay', function () {
 });
 
 it('refuses an unsealed upload', function () {
-    $this->call('QUERY', '/_asgard/upload', [], [], [], ['CONTENT_TYPE' => 'application/json'], uploadFrame())
+    $this->call('QUERY', '/_asgard/upload', [], [], [], envelope(['CONTENT_TYPE' => 'application/json']), uploadFrame())
         ->assertStatus(419);
 
     expect(UploadScreen::$calls)->toBe([]);

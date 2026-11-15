@@ -153,11 +153,6 @@ class UploadController
      */
     protected function frame(Request $request): array
     {
-        $header = $request->headers->get('Asgard-Protocol');
-        if ($header !== null && $header !== (string) self::PROTOCOL) {
-            throw new InvalidRequest('Unsupported Asgard-Protocol header.');
-        }
-
         $body = $this->secure($request)->body;
 
         if (strlen($body) < 4) {

@@ -998,22 +998,29 @@ sent. Sessions live in a cache store and expire after `lifetime` seconds
 without a request.
 
 ```json
-→ {"key":"<ASGARD_KEY>","protocol":1,"accepts":["tree/json"],"elements":["list_item","toggle"],"client_public":"<base64url point>"}
-← {"session":"<id>","server_public":"<base64url point>","expires_in":1800,"encoding":"tree/json"}
+→ {"key":"<ASGARD_KEY>","protocols":[1],"accepts":["tree/json"],"elements":["list_item","toggle"],"client_public":"<base64url point>"}
+← {"session":"<id>","server_public":"<base64url point>","protocol":1,"expires_in":1800,"encoding":"tree/json"}
 ```
 
+`protocols` lists the versions the client speaks, and `protocol` is the one
+the server picked. A list without 1 is a 422 `unsupported_protocol`.
 `elements` is optional. It is a list of up to 256 distinct snake_case type
 names, kept with the session. A malformed list is a 422. Chrome types and
 `server_region` in it are dropped, since a fragment can never use them.
 
 Render, call, upload, stream and route list requests then carry
-`Asgard-Session-Id`, an `aes128gcm` body (RFC 8188), `Content-Digest`
+`Asgard-Protocol: 1`, `Asgard-Session-Id`, an `aes128gcm` body (RFC 8188), `Content-Digest`
 (RFC 9530) and an `hmac-sha256` signature under the label `asgard`
 (RFC 9421). Server actions, calls and uploads also sign a nonce, and a nonce
 is refused the second time. A call or upload without a nonce gets a plain
-403 `nonce_required` before its body is decrypted. The `SealAsgardMessages` middleware checks all of
-it before your middleware or any controller sees the request, and seals
-whatever comes back. Stream events are sealed one by one and bound to the
+403 `nonce_required` before its body is decrypted. A read (a render with no
+action, a stream or the route list) whose signature carries a nonce gets a
+sealed 422 `invalid_request`. A missing or other `Asgard-Protocol` is a plain
+422 `unsupported_protocol`, and a body that is not `aes128gcm` a plain 415
+`unsupported_coding`, before anything else is checked. The
+`RequireProtocolAndCoding` and `SealAsgardMessages` middleware check all of
+it, in the order of protocol §7.6, before your middleware or any controller
+sees the request, and seal whatever comes back. Stream events are sealed one by one and bound to the
 request that opened the stream.
 
 Config, under `asgard.sessions`:
@@ -1198,11 +1205,13 @@ No `target` means the server. An explicit `"server"` is dropped on the way out.
 | --- | --- | --- |
 | 403 | `{"error":"forbidden",…}` | Digest, signature or decryption failed, the signature expired, or a nonce was replayed. Plain, unsigned. Do not retry. |
 | 403 | `{"error":"nonce_required"}` | An action whose signature has no nonce. Sealed, since only the decrypted body says it is an action. |
+| 415 | `{"error":"unsupported_coding",…}` | `Content-Encoding` is missing or is not `aes128gcm`. Plain, unsigned. |
 | 404 | `{"error":"unknown_component"}` | Unknown component, or a region it doesn't declare (any one of `regions`). Same body for both. |
 | 404 | `{"error":"unknown_action"}` | `action.call` is not a callable `#[ServerAction]` on the component, or the arg count doesn't fit it. |
 | 405 | `{"error":"method_not_allowed",…}` | POST without `X-Asgard-Method: QUERY`, or a method other than QUERY and POST. Plain, unsigned. |
 | 419 | `{"error":"session_expired",…}` | No session, or the server no longer knows it. Plain, unsigned. Handshake again and retry once. |
-| 422 | `{"error":"invalid_request","message":…}` | Bad body, `region` instead of `regions`, an action that does not name exactly one region, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
+| 422 | `{"error":"unsupported_protocol","protocols":[1],…}` | `Asgard-Protocol` is missing, not a version the server speaks, or not the session's. Plain, unsigned. |
+| 422 | `{"error":"invalid_request","message":…}` | A render with no action whose signature carries a nonce, bad body, `region` instead of `regions`, an action that does not name exactly one region, bad `action` shape, state that doesn't fit a prop's type, or an arg that doesn't fit its param's type. |
 | 422 | `{"error":"too_many_regions","message":…}` | `regions` names more than `asgard.max_regions`. Nothing is rendered. |
 | 500 | `{"error":"invalid_fragment"}` | The region returned a bad fragment, including one with a type the client did not list. The message is included in debug. |
 | 500 | `{"error":"invalid_delta"}` | The action or the render left a changed prop, or a `#[Computed]` gave a value, that is not a plain JSON value. The message is included in debug. |

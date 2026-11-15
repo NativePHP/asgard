@@ -38,16 +38,11 @@ class RoutesController
     }
 
     /**
-     * Protocol header and a body of {"protocol": 1}. Other members are
+     * A body of {"protocol": 1}. Other members are
      * ignored (§5.3).
      */
     protected function routesBody(Request $request): void
     {
-        $header = $request->headers->get('Asgard-Protocol');
-        if ($header !== null && $header !== (string) self::PROTOCOL) {
-            throw new InvalidRequest('Unsupported Asgard-Protocol header.');
-        }
-
         $body = json_decode($this->secure($request)->body, true);
 
         if (! is_array($body) || array_is_list($body) || ($body['protocol'] ?? null) !== self::PROTOCOL) {

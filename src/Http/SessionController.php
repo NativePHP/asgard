@@ -20,6 +20,9 @@ class SessionController
 {
     public const PROTOCOL = 1;
 
+    /** Every version this server speaks, for unsupported_protocol answers. */
+    public const PROTOCOLS = [self::PROTOCOL];
+
     public const ENCODING = 'tree/json';
 
     /** At most this many extra element types in `elements`. */
@@ -55,7 +58,7 @@ class SessionController
         }
 
         if (! in_array(self::PROTOCOL, $offered, true)) {
-            return response()->json(['error' => 'unsupported_protocol', 'protocols' => [self::PROTOCOL]], 422);
+            return response()->json(['error' => 'unsupported_protocol', 'protocols' => self::PROTOCOLS], 422);
         }
 
         $accepts = $body['accepts'] ?? null;
@@ -78,7 +81,7 @@ class SessionController
             return $this->error(422, 'invalid_request', 'client_public must be an uncompressed P-256 point in base64url.');
         }
 
-        $session = $this->sessions->create(SessionKeys::secret($shared, $clientPublic, $serverPublic), $elements);
+        $session = $this->sessions->create(SessionKeys::secret($shared, $clientPublic, $serverPublic), $elements, self::PROTOCOL);
 
         return response()->json([
             'session' => $session,

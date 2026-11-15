@@ -11,8 +11,9 @@ use Native\Asgard\Security\Wire;
 /**
  * Asgard sessions (Asgard protocol §6), kept in a cache store.
  *
- * A session is its secret and the extra element types the client said it
- * can render at the handshake (`elements`, Asgard protocol §6.1). Every
+ * A session is its secret, the extra element types the client said it
+ * can render at the handshake (`elements`, Asgard protocol §6.1) and the
+ * protocol version it was made with (§6.2). Every
  * accepted request puts it back with a fresh lifetime, so it expires after
  * `lifetime` seconds idle. Nonces from actions, calls and uploads are kept
  * here too, until their signature expires.
@@ -36,11 +37,11 @@ class SessionStore
      *
      * @param  list<string>  $elements  the extra types the client advertised
      */
-    public function create(string $secret, array $elements = []): string
+    public function create(string $secret, array $elements, int $protocol): string
     {
         $id = Base64Url::encode(random_bytes(18));
 
-        $this->put($id, $secret, $elements);
+        $this->put($id, $secret, $elements, $protocol);
 
         return $id;
     }
@@ -51,10 +52,10 @@ class SessionStore
     }
 
     /**
-     * The session's keys and advertised element types, or null when the
-     * session is unknown or expired.
+     * The session's keys, advertised element types and protocol version,
+     * or null when the session is unknown or expired.
      *
-     * @return array{keys: SessionKeys, elements: list<string>}|null
+     * @return array{keys: SessionKeys, elements: list<string>, protocol: int}|null
      */
     public function open(string $id): ?array
     {
@@ -63,6 +64,7 @@ class SessionStore
         return $record === null ? null : [
             'keys' => SessionKeys::fromSecret($record['secret']),
             'elements' => $record['elements'],
+            'protocol' => $record['protocol'],
         ];
     }
 
@@ -72,7 +74,7 @@ class SessionStore
         $record = $this->record($id);
 
         if ($record !== null) {
-            $this->put($id, $record['secret'], $record['elements']);
+            $this->put($id, $record['secret'], $record['elements'], $record['protocol']);
         }
     }
 
@@ -93,15 +95,16 @@ class SessionStore
     }
 
     /** @param  list<string>  $elements */
-    protected function put(string $id, string $secret, array $elements): void
+    protected function put(string $id, string $secret, array $elements, int $protocol): void
     {
         $this->repository()->put(self::PREFIX.$id, [
             'secret' => Base64Url::encode($secret),
             'elements' => $elements,
+            'protocol' => $protocol,
         ], $this->lifetime);
     }
 
-    /** @return array{secret: string, elements: list<string>}|null */
+    /** @return array{secret: string, elements: list<string>, protocol: int}|null */
     protected function record(string $id): ?array
     {
         if (! preg_match(self::ID_PATTERN, $id)) {
@@ -117,11 +120,11 @@ class SessionStore
         $secret = Base64Url::decode($stored['secret']);
         $elements = $stored['elements'] ?? [];
 
-        if ($secret === null || strlen($secret) !== 32 || ! is_array($elements)) {
+        if ($secret === null || strlen($secret) !== 32 || ! is_array($elements) || ! is_int($stored['protocol'] ?? null)) {
             return null;
         }
 
-        return ['secret' => $secret, 'elements' => array_values(array_filter($elements, 'is_string'))];
+        return ['secret' => $secret, 'elements' => array_values(array_filter($elements, 'is_string')), 'protocol' => $stored['protocol']];
     }
 
     protected function repository(): Repository
