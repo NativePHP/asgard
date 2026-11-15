@@ -203,11 +203,30 @@ trait AnswersWithDelta
 
         foreach ($this->properties($component) as $name => $property) {
             if ($property->isInitialized($component)) {
-                $prints[$name] = serialize($property->getValue($component));
+                $print = $this->fingerprint($property->getValue($component));
+
+                if ($print !== null) {
+                    $prints[$name] = $print;
+                }
             }
         }
 
         return $prints;
+    }
+
+    /**
+     * A value's serialize() form, or null for one that can't be serialized
+     * (a closure, or an object holding one, such as a LazyCollection). Such
+     * a value is never a plain JSON value, so it can only end in the
+     * invalid_delta answer, never in a crash here.
+     */
+    protected function fingerprint(mixed $value): ?string
+    {
+        try {
+            return serialize($value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -228,7 +247,7 @@ trait AnswersWithDelta
 
             $value = $property->getValue($component);
 
-            if (array_key_exists($name, $before) && $before[$name] === serialize($value)) {
+            if (array_key_exists($name, $before) && $before[$name] === $this->fingerprint($value)) {
                 continue;
             }
 

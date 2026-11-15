@@ -3,6 +3,7 @@
 namespace Native\Asgard\Tests\Fixtures;
 
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\LazyCollection;
 use Native\Asgard\Attributes\Computed;
 use Native\Asgard\Attributes\Region;
 use Native\Asgard\Attributes\ServerAction;
@@ -25,6 +26,9 @@ class StateScreen extends ServerComponent
     public string $checked = '';
 
     public string $platform = '';
+
+    /** Untyped, so never hydrated. The `lazy` region fills it with view data. */
+    public $lines = [];
 
     #[Computed]
     public function label(): string
@@ -63,6 +67,15 @@ class StateScreen extends ServerComponent
         $this->platform = 'server';
 
         return Node::text('meddled');
+    }
+
+    /** Puts a value no answer can carry in a public prop while rendering. */
+    #[Region('lazy')]
+    public function lazy(): Node
+    {
+        $this->lines = LazyCollection::make(fn () => yield 'a');
+
+        return Node::text('lazy');
     }
 
     #[Region('stats')]

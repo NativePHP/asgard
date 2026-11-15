@@ -313,3 +313,11 @@ it('never compresses a call answer, even with large fragments', function () {
         ->assertJsonCount(210, 'fragments.rows.fragment')
         ->assertHeader('Asgard-Content-Coding', 'identity');
 });
+
+it('answers invalid_delta, not a crash, when a render leaves a value that cannot be serialized in a public prop', function () {
+    config(['app.debug' => true]);
+
+    $this->asgard(stateRender(['regions' => ['lazy']]))
+        ->assertStatus(500)
+        ->assertJsonPath('error', 'invalid_delta');
+});
