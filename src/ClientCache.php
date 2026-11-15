@@ -13,6 +13,10 @@ use Carbon\CarbonImmutable;
  * The copy is fresh while its age is under the shorter of `ttl` and the
  * region's server max age. A `made_at` up to a minute in the future
  * still counts, for clock skew between servers.
+ *
+ * A fresh copy with `asgard.cache.grace` seconds or less left is in its
+ * grace window. The server renders it anyway, as a normal fragment, so
+ * the client gets a new copy before its old one runs out.
  */
 final class ClientCache
 {
@@ -36,12 +40,41 @@ final class ClientCache
         return (self::nowMs() - $this->madeAtMs) / 1000;
     }
 
+    /** Within the shorter of ttl and max age. Grace does not count here. */
     public function isFresh(): bool
     {
-        $limit = $this->maxAge === null ? $this->ttl : min($this->ttl, $this->maxAge);
         $age = self::nowMs() - $this->madeAtMs;
 
-        return $age >= -self::SKEW_MS && $age < $limit * 1000;
+        return $age >= -self::SKEW_MS && $age < $this->limit() * 1000;
+    }
+
+    /** Seconds of freshness left. Negative once the copy has run out. */
+    public function remaining(): float
+    {
+        return ($this->limit() * 1000 - (self::nowMs() - $this->madeAtMs)) / 1000;
+    }
+
+    /** Fresh, but with `asgard.cache.grace` seconds or less left. */
+    public function inGrace(): bool
+    {
+        return $this->isFresh() && $this->remaining() <= self::grace();
+    }
+
+    /** `asgard.cache.grace`, in seconds. */
+    public static function grace(): int
+    {
+        $grace = config('asgard.cache.grace', 30) ?? 30;
+
+        if (! is_numeric($grace) || (int) $grace != $grace || (int) $grace < 0) {
+            throw new \InvalidArgumentException('asgard.cache.grace must be a whole number of seconds, 0 or more.');
+        }
+
+        return (int) $grace;
+    }
+
+    private function limit(): int
+    {
+        return $this->maxAge === null ? $this->ttl : min($this->ttl, $this->maxAge);
     }
 
     /**

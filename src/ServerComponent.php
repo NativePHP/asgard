@@ -226,7 +226,8 @@ abstract class ServerComponent
 
     /**
      * Called for each region about to be rendered whose client copy is
-     * fresh, before the server skips rendering it. Compare
+     * fresh, in its grace window or not, before the server decides whether
+     * to skip rendering it. Compare
      * $cache->madeAt with when the data last changed, and call
      * forceCacheInvalidation() when the copy is out of date:
      *
@@ -250,8 +251,9 @@ abstract class ServerComponent
     }
 
     /**
-     * Whether this region can go back as `{"cached": true}`: the client's
-     * copy is fresh, checkClientCache() let it stand and nothing forced
+     * Whether this region can go back as `{"cached": true}`: the client
+     * declared a copy in this request, it is fresh and out of its grace
+     * window, checkClientCache() let it stand and nothing forced
      * invalidation.
      *
      * @internal
@@ -267,7 +269,9 @@ abstract class ServerComponent
         $this->setAsgardContext($region);
         $this->checkClientCache($region, $cache);
 
-        return ! $this->asgardInvalidate;
+        // A copy about to run out is rendered as a normal fragment, so the
+        // client gets a new one in time. The hook still ran for it.
+        return ! $this->asgardInvalidate && ! $cache->inGrace();
     }
 
     /** @internal */

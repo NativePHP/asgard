@@ -204,7 +204,7 @@ it('renders a copy older than its own ttl', function () {
 
 it('renders a copy whose age is exactly the limit', function () {
     $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(60, 300)]]))->assertOk()->assertJsonPath('region', 'stats');
-    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(59.999, 300)]]))->assertOk()->assertJsonPath('cached', true);
+    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(29.999, 300)]]))->assertOk()->assertJsonPath('cached', true);
 });
 
 it('never treats a ttl of 0 or a max age of 0 as fresh', function () {
@@ -282,6 +282,9 @@ it('skips refresh() regions that are fresh in calls and uploads', function () {
 });
 
 it('skips a fresh shared region on render too', function () {
+    // board's max age is 30, which the default grace would cover whole.
+    config(['asgard.cache.grace' => 10]);
+
     $this->asgard(cacheBody(['region' => 'board', 'cache' => ['board' => cachedCopy(5)]]))->assertOk()->assertJsonPath('cached', true);
 
     expect(CacheScreen::$calls)->toBe([]);
@@ -508,4 +511,86 @@ it('refuses any reason but push', function (mixed $reason) {
 
 it('refuses a reason on calls, which push never causes', function () {
     $this->asgard(cacheCall('serverBump', [false], ['reason' => 'push']), 'QUERY', [], 'call')->assertStatus(422);
+});
+
+// ── Grace window ────────────────────────────────────
+
+it('renders a fresh copy inside the grace window as a normal fragment', function () {
+    // stats has a max age of 60, so 30 seconds or less left is grace.
+    $response = $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(31)]]))->assertOk();
+
+    expect($response->json('fragment.props.text'))->toBe('Stats 1')
+        ->and($response->json('made_at'))->toBe($this->now)
+        ->and($response->headers->has('Asgard-Cache'))->toBeFalse()
+        ->and(CacheScreen::$calls)->toBe(['stats']);
+
+    // The hook still ran for it.
+    expect(CacheScreen::$checked['stats']->inGrace())->toBeTrue();
+});
+
+it('skips a copy just outside the grace window', function () {
+    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(29)]]))->assertOk()->assertJsonPath('cached', true);
+
+    expect(CacheScreen::$calls)->toBe([]);
+});
+
+it('takes the grace window from config', function () {
+    config(['asgard.cache.grace' => 0]);
+    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(59)]]))->assertOk()->assertJsonPath('cached', true);
+
+    config(['asgard.cache.grace' => 50]);
+    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(15)]]))->assertOk()->assertJsonPath('region', 'stats');
+});
+
+it('lets the hook force invalidation for a copy in grace', function () {
+    CacheScreen::$changedAt = $this->now;
+
+    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(40)]]))
+        ->assertOk()
+        ->assertHeader('Asgard-Cache', 'invalidate');
+});
+
+it('mixes a skipped copy and one in grace in a batch', function () {
+    $response = $this->asgard(batchBody(['regions' => ['stats', 'greeting'], 'cache' => ['stats' => cachedCopy(5), 'greeting' => cachedCopy(50, 60)]]))->assertOk();
+
+    expect($response->json('fragments.stats'))->toBe(['cached' => true])
+        ->and($response->json('fragments.greeting.fragment.props.text'))->toBe('Hello 1')
+        ->and($response->headers->has('Asgard-Cache'))->toBeFalse();
+});
+
+it('works out remaining() and inGrace()', function () {
+    $now = now()->getTimestampMs();
+
+    expect((new ClientCache('x', $now - 10_000, 100))->remaining())->toBe(90.0)
+        ->and((new ClientCache('x', $now - 10_000, 100, 40))->remaining())->toBe(30.0)
+        ->and((new ClientCache('x', $now - 10_000, 100, 40))->inGrace())->toBeTrue()
+        ->and((new ClientCache('x', $now - 10_000, 100))->inGrace())->toBeFalse()
+        ->and((new ClientCache('x', $now - 50_000, 40))->remaining())->toBe(-10.0)
+        ->and((new ClientCache('x', $now - 50_000, 40))->inGrace())->toBeFalse()
+        ->and((new ClientCache('x', $now - 50_000, 40))->isFresh())->toBeFalse()
+        ->and((new ClientCache('x', $now - 20_000, 40))->isFresh())->toBeTrue();
+});
+
+// ── Never cached without a declared copy ────────────
+
+it('never answers cached for a region the request did not declare', function () {
+    // A copy of greeting only, sent while the hook would let anything stand.
+    $single = $this->asgard(cacheBody(['cache' => ['greeting' => cachedCopy(1)]]))->assertOk();
+    $batch = $this->asgard(batchBody(['regions' => ['stats', 'greeting', 'never'], 'cache' => ['greeting' => cachedCopy(1)]]))->assertOk();
+    $call = $this->asgard(cacheCall('serverBump', [false, 'stats', 'never'], ['cache' => ['greeting' => cachedCopy(1)]]), 'QUERY', [], 'call')->assertOk();
+    $action = $this->asgard(cacheBody(['action' => ['call' => 'bump', 'args' => ['never']], 'cache' => ['greeting' => cachedCopy(1)]]))->assertOk();
+
+    expect($single->json())->not->toHaveKey('cached')
+        ->and($single->json('region'))->toBe('stats')
+        ->and($batch->json('fragments.greeting'))->toBe(['cached' => true])
+        ->and($batch->json('fragments.stats'))->toHaveKey('fragment')
+        ->and($batch->json('fragments.never'))->toHaveKey('fragment')
+        ->and($call->json('fragments.stats'))->toHaveKey('fragment')
+        ->and($call->json('fragments.never'))->toHaveKey('fragment')
+        ->and($action->json())->not->toHaveKey('cached')
+        ->and($action->json('fragments.never'))->toHaveKey('fragment');
+
+    // A declared copy from an earlier request counts for nothing in this one.
+    $this->asgard(cacheBody(['cache' => ['stats' => cachedCopy(1)]]))->assertOk()->assertJsonPath('cached', true);
+    $this->asgard(cacheBody())->assertOk()->assertJsonPath('region', 'stats');
 });

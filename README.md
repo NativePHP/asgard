@@ -480,7 +480,10 @@ sets no limit. The client keeps a copy for the shorter of its own TTL and
 
 ```php
 // config/asgard.php
-'cache' => ['max_age' => 300],  // null (the default) means no server limit
+'cache' => [
+    'max_age' => 300,  // null (the default) means no server limit
+    'grace' => 30,     // the default
+],
 
 #[Region('stats', maxAge: 60)]      // this region's own limit
 #[Region('balance', maxAge: 0)]     // never cached
@@ -491,6 +494,11 @@ A copy is fresh when its age is under the shorter of the client's TTL and the
 region's max age. A `made_at` up to a minute in the future still counts, for
 clock skew. For a fresh region the server does not call the region method at
 all. It answers `{"cached": true}` and the client keeps what it shows.
+
+A fresh copy with `grace` seconds or less left is rendered anyway and sent as
+a normal fragment, with no `Asgard-Cache` header. The client stores it like
+any other, so its copy is renewed before it runs out. The server only ever
+answers `{"cached": true}` for a region the client declared in that request.
 
 **A fresh copy wins over every other reason to redraw**: an action on the
 region, `refresh()`, a fetch after a push. So once caching is on, an action
@@ -526,8 +534,11 @@ protected function checkClientCache(string $region, ClientCache $cache): void
 }
 ```
 
+The hook runs for every fresh copy, in its grace window or not.
+
 `ClientCache` has `region`, `madeAt` (a `CarbonImmutable`), `ttl` (seconds),
-`age()` (seconds, a float) and `isFresh()`. `$this->clientCache('stats')`
+`age()` (seconds, a float), `remaining()` (seconds of freshness left, negative
+once it has run out), `isFresh()` (grace ignored) and `inGrace()`. `$this->clientCache('stats')`
 gives the copy for a region anywhere in the request, or null when the client
 holds none.
 
@@ -989,8 +1000,9 @@ Every fragment the server sends, here and in every `fragments` map, carries
 `made_at` (Unix milliseconds when it was rendered) and `max_age` (seconds),
 next to `version`. `max_age` is left out when the server sets no limit.
 
-When the client's copy of the region is fresh, the region is not rendered and
-the answer is only:
+When the client declared a copy of the region in this request, and it has
+more than `asgard.cache.grace` seconds of freshness left, the region is not
+rendered and the answer is only:
 
 ```json
 {"protocol":1,"cached":true}
@@ -1000,6 +1012,9 @@ An action answer for a fresh region is the same, plus any `fragments` and
 `refresh` it carries. In a `fragments` map a fresh region is
 `"stats":{"cached":true}`. A cached part has no `version`, since the client's
 copy keeps the one it came with.
+
+A copy inside the grace window is rendered and sent as a normal fragment. A
+region the request did not declare is never answered with `cached`.
 
 When the request forced invalidation, every region is rendered and the
 response carries `Asgard-Cache: invalidate`. The response signature covers it,

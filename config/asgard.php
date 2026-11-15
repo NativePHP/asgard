@@ -144,9 +144,13 @@ return [
     |          own TTL still applies, and the shorter one wins. A region can
     |          set its own with #[Region('stats', maxAge: 60)], a screen
     |          with #[Screen('/x', maxAge: 60)]. 0 means never cache.
+    | grace:   a fresh copy with this many seconds or less left is rendered
+    |          anyway, as a normal fragment, so the client gets a new copy
+    |          before the old one runs out.
     */
     'cache' => [
         'max_age' => env('ASGARD_CACHE_MAX_AGE'),
+        'grace' => (int) env('ASGARD_CACHE_GRACE', 30),
     ],
 
     /*
