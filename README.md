@@ -1447,3 +1447,27 @@ verifies on the stream it was sent on.
 ```sh
 composer test
 ```
+
+### Conformance suite
+
+The protocol repo has a conformance suite: 80 server cases run over HTTP, and
+offline byte vectors. `workbench/app` holds the fixture components its
+`conformance/FIXTURES.md` asks for, and `public/index.php` boots Testbench
+with them, so a web server can serve this package on its own.
+
+PHP's built-in server answers QUERY with 501, so serve the package with a
+real one. With Herd, link the package folder and use its `.test` host:
+
+```sh
+herd link asgard
+node ../asgard-protocol/conformance/runner/run.mjs \
+    --server http://asgard.test/_asgard --key conformance-key
+```
+
+Add `--case name,prefix-*` to run some cases only. The key comes from
+`testbench.yaml`. The offline vectors also have a checker that uses this
+package's own crypto classes:
+
+```sh
+php conformance/check-vectors.php ../asgard-protocol/conformance/vectors/vectors.json
+```
