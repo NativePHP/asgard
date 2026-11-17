@@ -1,7 +1,7 @@
 {
     "name": "nativephp/asgard",
     "description": "Server half of Asgard, NativePHP's server-driven UI protocol",
-    "license": "proprietary",
+    "license": "MIT",
     "authors": [
         {
             "name": "Simon Hamp",
