@@ -314,6 +314,10 @@ final class Wire
             throw new SecurityException('The response signature does not verify.');
         }
 
+        if (trim($headers['asgard-protocol'] ?? '') !== self::PROTOCOL) {
+            throw new SecurityException('The response protocol version is not supported.');
+        }
+
         return self::decode($headers['content-encoding'] ?? null, $headers['asgard-content-coding'] ?? '', $body, $keys->encServer, $session);
     }
 
@@ -367,9 +371,10 @@ final class Wire
     ): string {
         $json = json_decode($data, true);
 
-        if (! is_array($json) || array_keys($json) !== ['body', 'enc', 'sig']
-            || ! is_string($json['body']) || ! is_string($json['sig']) || ! in_array($json['enc'], ['gzip', 'identity'], true)) {
-            throw new SecurityException('An event must be {"body", "enc", "sig"} with enc gzip or identity.');
+        if (! is_array($json)
+            || ! is_string($json['body'] ?? null) || ! is_string($json['sig'] ?? null)
+            || ! in_array($json['enc'] ?? null, ['gzip', 'identity'], true)) {
+            throw new SecurityException('An event must carry string body, sig and enc (gzip or identity).');
         }
 
         $sig = Base64Url::decode($json['sig']);
